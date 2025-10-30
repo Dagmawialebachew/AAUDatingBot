@@ -1,0 +1,249 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                    CRUSHCONNECT - QUICK REFERENCE                    ║
+║              Production-Ready Telegram Bot for AAU Students          ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📋 SETUP (5 MINUTES)
+═══════════════════════════════════════════════════════════════════════
+
+1. Get Bot Token:
+   • Message @BotFather on Telegram
+   • Send: /newbot
+   • Copy your bot token
+
+2. Create Channel:
+   • Public channel: @AAUCrushConnect
+   • Add bot as admin
+   • Grant posting permissions
+
+3. Configure .env:
+   BOT_TOKEN=your_token_here
+   CHANNEL_ID=@AAUCrushConnect
+   ADMIN_GROUP_ID=your_user_id
+
+4. Install & Run:
+   pip install -r requirements.txt
+   python bot.py
+
+5. Set Admin:
+   • Message your bot: /start
+   • Complete profile
+   • Send: /set_admin YOUR_USER_ID
+
+═══════════════════════════════════════════════════════════════════════
+📂 PROJECT FILES
+═══════════════════════════════════════════════════════════════════════
+
+Core Bot:
+  bot.py                  - Main entry point
+  bot_config.py          - Configuration
+  database.py            - Database operations
+  utils.py               - Helper functions
+  notifications.py       - Scheduled tasks
+
+Features:
+  handlers_profile.py    - Profile setup
+  handlers_main.py       - Main menu
+  handlers_matching.py   - Swipe & match
+  handlers_chat.py       - Anonymous chat
+  handlers_confession.py - Confessions
+  handlers_admin.py      - Admin panel
+  handlers_leaderboard.py- Rankings
+
+Deployment:
+  Dockerfile             - Docker config
+  render.yaml           - Render deployment
+  requirements.txt      - Dependencies
+  .env                  - Environment vars
+
+Documentation:
+  START_HERE.md         - Overview
+  QUICKSTART.md         - Setup guide
+  README_CRUSHCONNECT.md- Full docs
+  FEATURES.md           - Feature list
+
+═══════════════════════════════════════════════════════════════════════
+🎯 KEY FEATURES
+═══════════════════════════════════════════════════════════════════════
+
+✓ Profile Setup (inline buttons for all fields)
+✓ 7-Question Vibe Quiz
+✓ Smart Matching (filter by campus/dept/year)
+✓ Anonymous Chat System
+✓ Identity Reveal (30 coins)
+✓ Crush Confessions → Channel
+✓ Coins & Rewards System
+✓ Referral Tracking (50 coins per invite)
+✓ Weekly Leaderboard (Top 10)
+✓ Admin Panel (approve confessions, stats, broadcast)
+✓ Notifications (daily, weekly events)
+✓ Mini Games (icebreaker questions)
+
+═══════════════════════════════════════════════════════════════════════
+💰 COIN ECONOMY
+═══════════════════════════════════════════════════════════════════════
+
+EARN:
+  New Account    → 120 coins
+  Daily Login    → 10 coins
+  Confession     → 5 coins
+  Match          → 30 coins
+  Referral       → 50 coins
+
+SPEND:
+  Reveal Identity → 30 coins
+  Extra Likes     → 20 coins (future)
+  Premium         → 50 coins (future)
+
+═══════════════════════════════════════════════════════════════════════
+🎮 BOT COMMANDS
+═══════════════════════════════════════════════════════════════════════
+
+User:
+  /start   - Start bot / Main menu
+  /profile - View your profile
+
+Admin:
+  /admin                - Admin panel
+  /set_admin <user_id>  - Add admin
+  /broadcast <message>  - Message all users
+
+═══════════════════════════════════════════════════════════════════════
+📊 DATABASE TABLES
+═══════════════════════════════════════════════════════════════════════
+
+users             - User profiles
+likes             - Swipe history
+matches           - Mutual likes
+chats             - Messages
+confessions       - Anonymous posts
+referrals         - Invite tracking
+transactions      - Coin logs
+daily_logins      - Login streaks
+leaderboard_cache - Weekly stats
+
+═══════════════════════════════════════════════════════════════════════
+🔔 NOTIFICATION SCHEDULE
+═══════════════════════════════════════════════════════════════════════
+
+Daily (7 PM)      - Engagement reminder
+Friday (12 PM)    - Confession Friday
+Sunday (2 PM)     - Blind Date Sunday
+Monday (10 AM)    - Leaderboard post
+
+═══════════════════════════════════════════════════════════════════════
+🚀 DEPLOYMENT
+═══════════════════════════════════════════════════════════════════════
+
+Local:
+  python bot.py
+
+Docker:
+  docker build -t crushconnect .
+  docker run -d --env-file .env crushconnect
+
+Render.com:
+  1. Push to GitHub
+  2. Create Web Service
+  3. Select Docker
+  4. Add environment vars
+  5. Deploy!
+
+═══════════════════════════════════════════════════════════════════════
+🏫 AAU DATA
+═══════════════════════════════════════════════════════════════════════
+
+Campuses (7):
+  Main 6kilo, 5kilo, 4kilo, Sefer Selam, FBE, Yared, Lideta
+
+Departments (9+):
+  Engineering, Law, Business, Health Sciences, IT, FBE,
+  Natural Sciences, Social Sciences, Other
+
+Years (5):
+  1st Year, 2nd Year, 3rd Year, 4th Year, 5th Year+
+
+═══════════════════════════════════════════════════════════════════════
+🛠️ TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════
+
+Bot not responding?
+  → Check BOT_TOKEN
+  → Verify bot is running
+  → Check logs: bot.log
+
+Channel not posting?
+  → Bot is admin?
+  → Posting permissions?
+  → CHANNEL_ID correct?
+
+Database errors?
+  → Supabase credentials
+  → Internet connection
+  → RLS policies enabled
+
+Verify setup:
+  python verify_setup.py
+
+═══════════════════════════════════════════════════════════════════════
+📚 DOCUMENTATION
+═══════════════════════════════════════════════════════════════════════
+
+Getting Started:
+  1. START_HERE.md         - Read this first
+  2. QUICKSTART.md         - 5-minute setup
+  3. verify_setup.py       - Check configuration
+
+Full Guides:
+  • README_CRUSHCONNECT.md - Complete manual
+  • PROJECT_STRUCTURE.md   - Architecture
+  • FEATURES.md            - All features
+  • DEPLOYMENT_CHECKLIST.md- Launch guide
+
+═══════════════════════════════════════════════════════════════════════
+🎯 SUCCESS METRICS
+═══════════════════════════════════════════════════════════════════════
+
+Week 1:   50+ users, 10+ matches
+Month 1:  500+ users, 100+ matches
+Month 3:  2000+ users, 500+ matches
+
+═══════════════════════════════════════════════════════════════════════
+✅ CHECKLIST
+═══════════════════════════════════════════════════════════════════════
+
+Pre-Launch:
+  [ ] Bot token from @BotFather
+  [ ] Channel @AAUCrushConnect created
+  [ ] Bot added as channel admin
+  [ ] .env file configured
+  [ ] Dependencies installed
+  [ ] verify_setup.py passed
+  [ ] Admin access set up
+
+Testing:
+  [ ] Profile setup works
+  [ ] Matching shows profiles
+  [ ] Chat sends messages
+  [ ] Confessions submit
+  [ ] Admin panel accessible
+  [ ] Coins update correctly
+
+Launch:
+  [ ] Deployed to Render
+  [ ] All features tested
+  [ ] Invite initial users
+  [ ] Monitor for issues
+
+═══════════════════════════════════════════════════════════════════════
+
+🔥 READY TO LAUNCH THE HOTTEST THING ON AAU CAMPUS! 🔥
+
+Bot: @CrushConnectBot
+Channel: @AAUCrushConnect
+Docs: See START_HERE.md
+
+Built with 💜 for AAU students
+Production-ready • Fully featured • 100% complete
+
+═══════════════════════════════════════════════════════════════════════
