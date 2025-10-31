@@ -9,9 +9,9 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from dotenv import load_dotenv
 
 from database import db
-from bot_config import BOT_TOKEN, ADMIN_GROUP_ID, BASE_URL, WEBHOOK_PATH
 from handlers_likes import router as likes_router
 from handlers_profile import router as profile_router
 from handlers_main import router as main_router
@@ -25,6 +25,16 @@ from handlers_coin_and_shop import router as coin_and_shop_router
 from handlers_invite import router as invite_router
 from notifications import setup_scheduler, shutdown_scheduler
 from middlewares.rate_limit import RateLimitMiddleware
+
+# -------------------- Env --------------------
+load_dotenv()  # optional locally; Render sets env vars from render.yaml
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_GROUP_ID = os.getenv("ADMIN_GROUP_ID")  # keep as string if it's a chat/channel id
+# If you need int: ADMIN_GROUP_ID = int(os.getenv("ADMIN_GROUP_ID", "0")) or None
+BASE_URL = os.getenv("BASE_URL", "")          # e.g., https://aaudatingbot.onrender.com
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+PORT = int(os.getenv("PORT", "8080"))
 
 # -------------------- Logging --------------------
 logging.basicConfig(
@@ -95,6 +105,9 @@ async def health_check(request):
 
 # -------------------- Webhook App Factory --------------------
 async def create_app() -> web.Application:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is missing")
+
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     setup_handlers(dp)
 
@@ -109,6 +122,8 @@ async def create_app() -> web.Application:
     async def on_startup_app(app: web.Application):
         await on_startup(bot)
         webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
+        if not BASE_URL:
+            logger.warning("BASE_URL is empty — webhook may not work. Set BASE_URL to your Render URL.")
         await bot.set_webhook(webhook_url, drop_pending_updates=True)
         logger.info(f"Webhook set to: {webhook_url}")
 
@@ -123,6 +138,9 @@ async def create_app() -> web.Application:
 
 # -------------------- Polling Mode --------------------
 async def start_polling():
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is missing")
+
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     setup_handlers(dp)
     dp.startup.register(on_startup)
@@ -140,6 +158,5 @@ if __name__ == "__main__":
     if "--polling" in sys.argv:
         asyncio.run(start_polling())
     else:
-        port = int(os.getenv("PORT", 8080))
-        logger.info(f"Starting webhook server on http://0.0.0.0:{port}")
-        web.run_app(create_app(), host="0.0.0.0", port=port)
+        logger.info(f"Starting webhook server on http://0.0.0.0:{PORT}")
+        web.run_app(create_app(), host="0.0.0.0", port=PORT)
