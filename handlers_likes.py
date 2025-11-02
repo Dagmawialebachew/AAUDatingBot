@@ -12,7 +12,7 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
-from bot_config import MATCHBACK_GIFS, MATCH_BREAKERS, NOTIFY_GIFS
+from bot_config import MATCH_CELEBRATIONS, MATCHBACK_GIFS, MATCH_BREAKERS, NOTIFY_GIFS
 from database import db
 from handlers_crushes import _render_crush_list_view
 from handlers_main import get_main_menu_keyboard
@@ -214,6 +214,7 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
 # -----------------------
 
 
+
 async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, context: str = "swipe"):
     """
     Unified match celebration: sends GIF (optional), profile card, vibe score, CTAs,
@@ -229,13 +230,13 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
     except Exception as e:
         logger.error(f"Failed to add match reward coins: {e}")
 
-    # Optional: only show GIF in likeback context
+    # Optional: show GIF in likeback context
     if context == "likeback":
         try:
             await bot.send_animation(
                 user_id,
                 animation=random.choice(MATCHBACK_GIFS),
-                caption="🎉 <b>IT'S A MATCH!</b> 🎉\n\n✨ +30 coins added!",
+                caption=f"{random.choice(MATCH_CELEBRATIONS)}\n\n✨ +30 coins added!",
                 parse_mode=ParseMode.HTML
             )
         except Exception:
@@ -249,10 +250,10 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
     # Profile card caption
     profile_text = format_profile_text(other, show_full=True)
     caption = (
-        f"{random.choice(MATCH_BREAKERS)}\n\n"
-        "💖 <b>New Mutual Match</b>\n\n"
+        f"{random.choice(MATCH_CELEBRATIONS)}\n\n"
         f"{profile_text}\n"
-        f"✨ Vibe Match: {vibe_score}%"
+        f"✨ Vibe Match: {vibe_score}%\n"
+        f"💰 +30 coins added!"
     )
 
     # Inline CTAs
@@ -263,33 +264,43 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
     # Send profile card
     try:
         if other.get("photo_file_id"):
-            await bot.send_photo(user_id, other["photo_file_id"], caption=caption, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            await bot.send_photo(
+                user_id,
+                other["photo_file_id"],
+                caption=caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
         else:
-            await bot.send_message(user_id, caption, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            await bot.send_message(
+                user_id,
+                caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
     except Exception as e:
         logger.error(f"Error sending match profile card: {e}")
 
     # Notify the other user
+    notify_variants = [
+        f"💘 <b>You’ve unlocked a new crush!</b>\n\n{user['name']} liked you back — you’re now a match. 💖",
+        f"🔥 <b>Mutual vibes detected!</b>\n\n{user['name']} is now your match. 🎉",
+    ]
     keyboard_notify = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Open Chat", callback_data=f"chat_{match_id}")],
-        [InlineKeyboardButton(
-    text="👀 View Profile",
-    callback_data=f"backlike_viewprofile_{other_id}_matches_0"
-)],
+        [InlineKeyboardButton(text="👀 View Profile", callback_data=f"backlike_viewprofile_{other_id}_matches_0")],
         [InlineKeyboardButton(text="❤️ Find Matches", callback_data="find_matches")]
     ])
 
     try:
         await bot.send_message(
             other_id,
-            f"💘 <b>You’ve unlocked a new crush!</b>\n\n{user['name']} liked you back — you’re now a match. 💖",
+            random.choice(notify_variants),
             reply_markup=keyboard_notify,
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
         logger.error(f"Could not notify matched user: {e}")
-
-
 
 @router.callback_query(F.data.startswith("likeback_"))
 async def handle_like_back_to_match(callback: CallbackQuery, state: FSMContext):

@@ -917,6 +917,34 @@ class Database:
             logger.error(f"Error recording daily login for user {user_id}: {e}")
             await self._db.rollback()
             return False
+        
+    
+    from datetime import date, timedelta
+
+    async def get_daily_streak(self, user_id: int) -> int:
+        try:
+            today = date.today()
+            async with self._db.execute(
+                "SELECT login_date FROM daily_logins WHERE user_id = ? ORDER BY login_date DESC",
+                (user_id,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                dates = [date.fromisoformat(row[0]) for row in rows]
+
+                streak = 0
+                for i, login_date in enumerate(dates):
+                    expected = today - timedelta(days=i)
+                    if login_date == expected:
+                        streak += 1
+                    else:
+                        break
+
+                return streak
+        except Exception as e:
+            logger.error(f"Error calculating streak for user {user_id}: {e}")
+            return 0
+
+
 
     
 

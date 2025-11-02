@@ -12,7 +12,7 @@ router = Router()
 # --- Keyboards ---
 
 
-@router.message(F.text == "✏️ Edit Profile")
+@router.message(F.text == "✏️ Profile")
 async def edit_profile_menu_from_main(message: Message, state: FSMContext):
     """
     Handles the '✏️ Edit Profile' Reply Keyboard button press 
@@ -20,20 +20,43 @@ async def edit_profile_menu_from_main(message: Message, state: FSMContext):
     """
     await show_edit_profile_menu_from_main(message, state)
 
+# def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
+#     return ReplyKeyboardMarkup(
+#         keyboard=[
+#             [KeyboardButton(text="❤️ Find Matches"), KeyboardButton(text="💖 My Crushes")],
+#             [KeyboardButton(text="✏️ Edit Profile"), KeyboardButton(text="💌 Crush Confession")],
+#             [KeyboardButton(text="🏆 Leaderboard"),KeyboardButton(text="🪙 Coins & Shop") ],
+#             [KeyboardButton(text="👥 Invite Friends"), KeyboardButton(text="🎮 Mini Games")],
+#             [KeyboardButton(text="🤝 View Shared/ 📊 Trending Interests")]
+
+            
+#         ],
+#         resize_keyboard=True
+#     )
+
+
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="❤️ Find Matches"), KeyboardButton(text="💖 My Crushes")],
-            [KeyboardButton(text="✏️ Edit Profile"), KeyboardButton(text="💌 Crush Confession")],
-            [KeyboardButton(text="🏆 Leaderboard"),KeyboardButton(text="🪙 Coins & Shop") ],
-            [KeyboardButton(text="👥 Invite Friends"), KeyboardButton(text="🎮 Mini Games")],
-            [KeyboardButton(text="🤝 View Shared/ 📊 Trending Interests")]
-
-            
+            [KeyboardButton(text="✏️ Profile"), KeyboardButton(text="💌 Confess")],
+            [KeyboardButton(text="⚙️ More")]
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
+        input_field_placeholder="✨ What’s your next move..."
     )
 
+def get_more_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📊 Interest & Trends"), KeyboardButton(text="🏆 Leaderboard")],
+            [KeyboardButton(text="🪙 Coins & Shop"), KeyboardButton(text="👥 Invite Friends")],
+            # [KeyboardButton(text="🎮 Play")],
+            [KeyboardButton(text="🔙 Back")]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="⚙️ Explore more options..."
+    )
 
 def get_back_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -42,6 +65,21 @@ def get_back_main_keyboard() -> ReplyKeyboardMarkup:
     )
     
 
+
+@router.message(F.text == "⚙️ More")
+async def show_more_menu(message: Message):
+    await message.answer(
+        "⚙️ More options unlocked:",
+        reply_markup=get_more_menu_keyboard()
+    )
+
+@router.message(F.text == "🔙 Back")
+async def back_to_main_menu(message: Message):
+    await message.answer(
+        "🔙 Back to main menu:",
+        reply_markup=get_main_menu_keyboard()
+    )
+    
 # from html import escape as h  # escape user names safely for HTML
 
 # async def _get_leaderboard_text_and_keyboard() -> Tuple[str, InlineKeyboardMarkup]:
@@ -75,6 +113,62 @@ def get_back_main_keyboard() -> ReplyKeyboardMarkup:
 
 # --- Handlers ---
 
+
+
+Router()
+from aiogram.enums import ParseMode
+from aiogram.filters import Command
+@router.message(Command("help"))
+async def help_command(message: Message):
+    await message.answer(
+        text=(
+            "<b>🆘 Welcome to CrushConnect Help</b>\n\n"
+            "Here’s everything you can do with this bot — no fluff, just the good stuff:\n\n"
+
+            "🔄 <b>Swiping</b>\n"
+            "Swipe through curated profiles with Like, Skip, and Filter controls.\n"
+            "• ❤️ Like\n"
+            "• 👋 Skip\n"
+            "• 🎯 Change Filter \n"
+            "• 🏠 Main Menu\n\n"
+
+            "🎯 <b>Filters</b>\n"
+            "• 📍 Campus\n"
+            "• 🎓 Year\n"
+            "• ✨ Clear All Filters\n\n"
+
+            "💘 <b>Matches</b>\n"
+            "When you both like each other, you’ll get a cinematic match reveal:\n"
+            "• 🎉 Match celebration\n"
+            "• 💬 Go to Chat\n"
+            "• 💰 +30 coins reward\n\n"
+
+            "💌 <b>Confessions</b>\n"
+            "Send anonymous confessions. Admins review before posting to the channel.\n"
+            "• ✅ Approve / ❌ Reject\n"
+            "• ❤️ React if it’s about you\n\n"
+
+            "👤 <b>Profile</b>\n"
+            "• 📝 Edit Bio\n"
+            "• 📸 Change Photo\n"
+            "• 💫 Retake Vibe Quiz\n"
+            "• 🔄 Change Gender/Seeking\n\n"
+
+         
+            "🧠 <b>Tips</b>\n"
+            "• If buttons disappear, return to the latest message.\n"
+            "• If filters are too strict, loosen them or invite friends.\n"
+            "• Coins are added automatically for matches and key actions.\n\n"
+
+            "🔐 <b>Privacy</b>\n"
+            "We respect your privacy. Learn more at:\n"
+            "https://privacy.microsoft.com/en-us/privacystatement\n\n"
+
+            "✨ <i>Built for connection. Designed for joy.</i>"
+        ),
+        parse_mode=ParseMode.HTML
+    )
+    
 import random
 from datetime import date
 
@@ -90,7 +184,9 @@ async def show_main_menu(message: Message, user_id: int = None):
         return
 
     # Record daily login and calculate streak
-    streak = await db.record_daily_login(uid)  # make this return current streak length
+    await db.record_daily_login(uid)
+    streak = await db.get_daily_streak(uid)
+    print('here is your streak for today', streak)
 
     # Cinematic openers
     openers = [

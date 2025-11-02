@@ -38,17 +38,17 @@ router = Router()
 
 
 
-def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="❤️ Find Matches"), KeyboardButton(text="💖 My Crushes")],
-            [KeyboardButton(text="✏️ Edit Profile"), KeyboardButton(text="💌 Crush Confession")],
-            [KeyboardButton(text="🏆 Leaderboard"), KeyboardButton(text="📢 Campus Feed")],
-            [KeyboardButton(text="🪙 Coins & Shop"), KeyboardButton(text="👥 Invite Friends")],
-            [KeyboardButton(text="🎮 Mini Games")]
-        ],
-        resize_keyboard=True
-    )
+# def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
+#     return ReplyKeyboardMarkup(
+#         keyboard=[
+#             [KeyboardButton(text="❤️ Find Matches"), KeyboardButton(text="💖 My Crushes")],
+#             [KeyboardButton(text="✏️ Edit Profile"), KeyboardButton(text="💌 Crush Confession")],
+#             [KeyboardButton(text="🏆 Leaderboard"), KeyboardButton(text="📢 Campus Feed")],
+#             [KeyboardButton(text="🪙 Coins & Shop"), KeyboardButton(text="👥 Invite Friends")],
+#             [KeyboardButton(text="🎮 Mini Games")]
+#         ],
+#         resize_keyboard=True
+#     )
 
 
 # --- FSM States for Initial Setup ---
@@ -1359,7 +1359,6 @@ def get_edit_interest_categories_keyboard(selected: list[str]) -> InlineKeyboard
             rows[-1].append(btn)
 
     # Single back row
-    rows.append([InlineKeyboardButton(text="🔙 Back to Edit Profile", callback_data="back_to_edit_profile")])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1507,7 +1506,7 @@ def get_interests_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-@router.message(F.text == "🤝 View Shared/ 📊 Trending Interests")
+@router.message(F.text == "📊 Interest & Trends")
 async def open_interests_menu(message: Message, state: FSMContext):
     await message.answer(
         "✨ What do you want to explore?\n\n"

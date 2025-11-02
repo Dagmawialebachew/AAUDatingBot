@@ -18,7 +18,7 @@ from handlers_main import router as main_router
 from handlers_matching import router as matching_router
 from handlers_chat import router as chat_router
 from handlers_confession import router as confession_router
-from handlers_admin import router as admin_router
+from handlers_admin import ADMIN_IDS, router as admin_router
 from handlers_crushes import router as crushes_router
 from handlers_leaderboard import router as leaderboard_router
 from handlers_coin_and_shop import router as coin_and_shop_router
@@ -64,15 +64,28 @@ def setup_handlers(dp: Dispatcher):
     dp.callback_query.middleware(RateLimitMiddleware(rate_limit=1))
 
 # -------------------- Bot Commands --------------------
-async def setup_bot_commands(bot: Bot):
-    commands = [
-        BotCommand(command="start", description="Start the bot / Main menu"),
-        BotCommand(command="profile", description="View your profile"),
-        BotCommand(command="admin", description="Admin panel (admin only)"),
-    ]
-    await bot.set_my_commands(commands)
+from aiogram.types import BotCommandScopeDefault, BotCommandScopeChat
 
-# -------------------- Startup / Shutdown --------------------
+user_commands = [
+    BotCommand(command="start", description="🚀 Start • Main Menu"),
+    BotCommand(command="profile", description="👤 My Profile"),
+    BotCommand(command="help", description="❓ Help & Support"),
+]
+
+
+admin_commands = [
+    BotCommand(command="admin", description="🛠️ Admin Panel"),
+    BotCommand(command="broadcast", description="📢 Broadcast Message"),
+]
+
+
+async def setup_bot_commands(bot: Bot):
+    # Default commands for all users
+    await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
+
+    # Admin‑only commands (scoped to each admin’s chat)
+    for admin_id in ADMIN_IDS:
+        await bot.set_my_commands(admin_commands + user_commands, scope=BotCommandScopeChat(chat_id=admin_id))
 async def on_startup(bot: Bot):
     logger.info("Bot is starting up...")
     await db.connect()

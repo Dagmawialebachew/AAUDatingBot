@@ -31,6 +31,29 @@ AAU_DEPARTMENTS = {
     "📚 Other": "Other",
 }
 
+LIKE_CONFIRMATIONS = [
+    "❤️ Locked in!",
+    "🔥 Sent your vibe!",
+    "💘 Shooting your shot...",
+    "✨ They’ll feel this one!"
+]
+
+
+PASS_CONFIRMATIONS = [
+    "💔 Skipped — on to the next!",
+    "👋 Let’s keep moving...",
+    "🚪 Passing this one by...",
+    "😌 Not your vibe, next!"
+]
+
+
+MATCH_CELEBRATIONS = [
+    "💖 <b>It’s a Match!</b>",
+    "🎉 <b>You both swiped right!</b>",
+    "🔥 <b>Sparks are flying!</b>",
+]
+
+
 
 YEARS = {
     "🥇 1st Year": "1st Year",

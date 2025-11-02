@@ -5,6 +5,7 @@ from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
+from bot_config import LIKE_CONFIRMATIONS, PASS_CONFIRMATIONS
 from database import db
 from utils import format_profile_text, calculate_vibe_compatibility, vibe_label
 from handlers_main import show_main_menu # Import the main menu function
@@ -87,12 +88,13 @@ def get_swiping_reply_keyboard() -> ReplyKeyboardMarkup:
     """Returns the custom Reply Keyboard for swiping and navigation."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="💔 Pass"), KeyboardButton(text="❤️ Like")],
-            [KeyboardButton(text="🎯 Change Filters")],
-            [KeyboardButton(text="🔙 Main Menu")]
+            [KeyboardButton(text="❤️ Like"), KeyboardButton(text="👋 Skip")],
+          [KeyboardButton(text="🎯 Change Filters"), KeyboardButton(text="🔙 Main Menu")]
+
         ],
         resize_keyboard=True,
-        is_persistent=True 
+        is_persistent=True,
+        input_field_placeholder="✨ Swipe or refine your vibe..."
     )
 
 def get_filter_menu_keyboard() -> InlineKeyboardMarkup:
@@ -104,6 +106,18 @@ def get_filter_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔥 Back to Swiping", callback_data="start_swiping_from_filter")] # New callback
     ])
 
+
+def get_out_of_matches_keyboard() -> ReplyKeyboardMarkup:
+    """Reply keyboard shown when user runs out of candidates."""
+    return ReplyKeyboardMarkup(
+       keyboard=[
+    [KeyboardButton(text="🎯 Change Filters"), KeyboardButton(text="👥 Invite Friends")],
+    [KeyboardButton(text="🔙 Main Menu")]
+       ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="✨ No more profiles — choose your next step..."
+    )
 # --- Core Swiping Logic ---
 
 @router.message(F.text == "❤️ Find Matches") 
@@ -135,12 +149,16 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
         candidates = await db.get_matches_for_user(viewer_id, filters)
         if not candidates:
             await message.answer(
-                "Yo... you ran out of unique people to swipe! 😭\n\n"
-                "Try changing your filters or come back later 👀",
-                reply_markup=get_swiping_reply_keyboard()
+                "😅 Looks like you’ve seen everyone for now!\n\n"
+                "✨ You can adjust your filters, invite more friends to grow the pool, "
+                "or head back to the main menu.",
+                reply_markup=get_out_of_matches_keyboard(),
+                parse_mode=ParseMode.HTML
             )
             await state.set_state(None)
             return
+
+            
         current_index = 0
         await state.update_data(candidates=candidates, current_index=0)
 
@@ -161,7 +179,7 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
 
     # --- Reveal state (check if match exists and revealed) ---
     match_row = await db.get_match_between(viewer_id, candidate["id"])
-    is_revealed = match_row and match_row.get("revealed")
+    is_revealed = True
 
     if is_revealed:
         profile_text = await format_profile_text(
@@ -224,41 +242,46 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
         await message.answer(profile_text, reply_markup=get_swiping_reply_keyboard(), parse_mode=ParseMode.HTML)
 
 
+
 @router.message(F.text == "❤️ Like", MatchingState.browsing)
 async def handle_like_message(message: Message, state: FSMContext):
-    """Handles the '❤️ Like' button press."""
     liker_id = message.from_user.id
     data = await state.get_data()
     candidates = data.get('candidates', [])
     current_index = data.get('current_index', 0)
 
     if not candidates or current_index >= len(candidates):
-        await message.answer("Something went wrong. Refreshing candidates...")
+        await message.answer("🔄 Refreshing your candidate pool...")
         return await show_candidate(message, state, liker_id, initial_call=True)
 
     liked_id = candidates[current_index]['id']
     result = await db.add_like(liker_id, liked_id)
 
-    await message.answer("❤️", reply_markup=get_swiping_reply_keyboard())
-    from handlers_likes import celebrate_match, notify_like
+    # 🎬 Cinematic confirmation
+    await message.answer(random.choice(LIKE_CONFIRMATIONS), reply_markup=get_swiping_reply_keyboard())
 
+    from handlers_likes import celebrate_match, notify_like
     if result["status"] == "match":
         await celebrate_match(message.bot, liker_id, liked_id, result["match_id"], context="swipe")
     elif result["status"] == "liked":
         await notify_like(message.bot, liker_id, liked_id)
-    elif result["status"] == "error":
-        await message.answer("⚠️ Something went wrong saving your like. Try again later.")
+    else:
+        await message.answer("😅 Couldn’t save your like. Try again later.")
 
     await state.update_data(current_index=current_index + 1)
+
+    # Smooth transition
+    await message.answer("➡️ Finding your next vibe...")
     await show_candidate(message, state, liker_id)
-
-
-@router.message(F.text == "💔 Pass", MatchingState.browsing)
+    
+    
+@router.message(F.text == "👋 Skip", MatchingState.browsing)
 async def handle_pass_message(message: Message, state: FSMContext):
-    """Handles the '💔 Pass' button press."""
+    """Handles the '💔 Pass' button press with cinematic feedback."""
     liker_id = message.from_user.id
 
-    await message.answer("💔", reply_markup=get_swiping_reply_keyboard())
+    # 🎬 Cinematic confirmation
+    await message.answer(random.choice(PASS_CONFIRMATIONS), reply_markup=get_swiping_reply_keyboard())
 
     data = await state.get_data()
     candidates = data.get('candidates', [])
@@ -270,8 +293,10 @@ async def handle_pass_message(message: Message, state: FSMContext):
         await db.add_pass(liker_id, passed_id)
 
     await state.update_data(current_index=current_index + 1)
-    await show_candidate(message, state, liker_id)
 
+    # Smooth transition to next candidate
+    await message.answer("➡️ Finding your next vibe...")
+    await show_candidate(message, state, liker_id)
 # --- Filter Handlers (Updated for Reply Keyboard flow) ---
 
 @router.message(F.text == "🎯 Change Filters")

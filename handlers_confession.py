@@ -7,7 +7,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 from aiogram.fsm.state import State, StatesGroup
-
+from handlers_main import get_main_menu_keyboard
 from database import db
 from bot_config import AAU_CAMPUSES, AAU_DEPARTMENTS, MAX_CONFESSION_LENGTH, COIN_REWARDS
 
@@ -153,7 +153,7 @@ def preview_keyboard() -> InlineKeyboardMarkup:
     ])
     
 # ---------- Entry ----------
-@router.message(F.text == "💌 Crush Confession")
+@router.message(F.text == "💌 Confess")
 async def start_confession_msg(message: Message, state: FSMContext):
     await state.clear()
     intro = (

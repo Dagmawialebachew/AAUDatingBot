@@ -537,8 +537,15 @@ async def handle_chat_message(message: Message, state: FSMContext):
         msg_map = message_map.setdefault(other_user_id, {})
         msg_map[sent.message_id] = {"match_id": match_id, "sender_id": user_id}
 
+        # 🎬 NEW: subtle confirmation back to sender
+        to_user = await db.get_user(other_user_id)
+        to_name = to_user.get("name", "them")
+        confirmation = random.choice(sent_confirmation_variants(to_name))
+        await message.answer(confirmation)
+
     except Exception as e:
         logger.error(f"Could not notify other user: {e}")
+
 
 
 # ---------- Inline reply and reactions ----------
