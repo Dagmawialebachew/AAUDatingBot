@@ -185,7 +185,7 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
         profile_text = await format_profile_text(
             candidate,
             vibe_score=vibe_score,
-            show_full=True,
+            show_full=False,
             viewer_interests=viewer_interests,
             candidate_interests=candidate_interests
         )
@@ -240,6 +240,9 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
     except Exception as e:
         logger.error(f"Error showing candidate: {e}")
         await message.answer(profile_text, reply_markup=get_swiping_reply_keyboard(), parse_mode=ParseMode.HTML)
+        
+    
+    await state.update_data(current_index=current_index + 1)
 
 
 
