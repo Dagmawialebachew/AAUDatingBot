@@ -261,8 +261,11 @@ async def handle_like_message(message: Message, state: FSMContext):
     result = await db.add_like(liker_id, liked_id)
 
     # 🎬 Cinematic confirmation
-    await message.answer(random.choice(LIKE_CONFIRMATIONS), reply_markup=get_swiping_reply_keyboard())
-
+    await message.answer(
+        random.choice(LIKE_CONFIRMATIONS),
+        reply_markup=get_swiping_reply_keyboard(),
+        parse_mode=ParseMode.HTML
+    )
     from handlers_likes import celebrate_match, notify_like
     if result["status"] == "match":
         await celebrate_match(message.bot, liker_id, liked_id, result["match_id"], context="swipe")
