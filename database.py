@@ -301,40 +301,71 @@ class Database:
             logger.error(f"Error updating last_active for {user_id}: {e}")
 
     async def get_matches_for_user(self, user_id: int, filters: Dict = None) -> List[Dict]:
+        """
+        Fetch and rank potential matches for a user with:
+        - Exclusion of self, inactive, banned
+        - Exclusion of already liked
+        - Exclusion of candidates passed twice in the last 3 days
+        - Soft penalty for candidates passed once (ranked lower, not hidden)
+        - Optional filters (gender, campus, department, year)
+        - Ranking by vibe compatibility, shared interests, recency, mutual likes
+        - Shuffle top results for freshness
+        """
         try:
             user = await self.get_user(user_id)
             if not user:
                 return []
 
-            params = [user_id, user_id, user_id]  # self, likes, passes
+            params = [user_id, user_id, user_id, user_id]
+
             sql = """
-                SELECT * FROM users
-                WHERE id != ?
-                AND is_active = TRUE
-                AND is_banned = FALSE
-                AND id NOT IN (SELECT liked_id FROM likes WHERE liker_id = ?)
-                AND id NOT IN (
-                    SELECT target_id FROM passes
-                    WHERE user_id = ? AND created_at > DATE('now', '-7 days')
-                )
+            WITH pass_counts AS (
+                SELECT target_id, COUNT(*) AS pass_count
+                FROM passes
+                WHERE user_id = ?
+                AND created_at > DATE('now', '-3 days')
+                GROUP BY target_id
+            ),
+            mutual_likes AS (
+                SELECT liker_id
+                FROM likes
+                WHERE liked_id = ?
+            )
+            SELECT u.*,
+                COALESCE(pc.pass_count, 0) AS pass_count,
+                CASE WHEN u.id IN (SELECT liker_id FROM mutual_likes) THEN 1 ELSE 0 END AS liked_you
+            FROM users u
+            LEFT JOIN pass_counts pc ON u.id = pc.target_id
+            WHERE u.id != ?
+            AND u.is_active = TRUE
+            AND u.is_banned = FALSE
+            AND u.id NOT IN (SELECT liked_id FROM likes WHERE liker_id = ?)
+            AND (pc.pass_count IS NULL OR pc.pass_count < 2)
             """
 
-            if user['seeking_gender'] != 'Any':
-                sql += " AND gender = ?"
-                params.append(user['seeking_gender'])
+            # --- Dynamic filters ---
+            if user['seeking_gender'].lower() != 'any':
+                sql += " AND LOWER(u.gender) = ?"
+                params.append(user['seeking_gender'].lower())
+
+            # Candidate must be seeking viewer's gender (case-insensitive)
+            sql += " AND (LOWER(u.seeking_gender) = 'any' OR LOWER(u.seeking_gender) = ?)"
+            params.append(user['gender'].lower())
+
+
 
             if filters:
                 if filters.get('campus'):
-                    sql += " AND campus = ?"
+                    sql += " AND u.campus = ?"
                     params.append(filters['campus'])
                 if filters.get('department'):
-                    sql += " AND department = ?"
+                    sql += " AND u.department = ?"
                     params.append(filters['department'])
                 if filters.get('year'):
-                    sql += " AND year = ?"
+                    sql += " AND u.year = ?"
                     params.append(filters['year'])
 
-            sql += " ORDER BY last_active DESC LIMIT 100"
+            sql += " ORDER BY liked_you DESC, u.last_active DESC LIMIT 100"
 
             async with self._db.execute(sql, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
@@ -344,10 +375,11 @@ class Database:
             viewer_vibe = json.loads(user.get('vibe_score', '{}') or '{}')
             viewer_interests = await self.get_user_interests(user_id)
 
-            # Preload candidate interests once
-            candidate_interests_map = {}
-            for c in candidates:
-                candidate_interests_map[c['id']] = await self.get_user_interests(c['id'])
+            # Preload candidate interests
+            candidate_interests_map = {
+                c['id']: await self.get_user_interests(c['id'])
+                for c in candidates
+            }
 
             def rank(c):
                 vibe = calculate_vibe_compatibility(
@@ -355,9 +387,24 @@ class Database:
                 )
                 overlap = len(set(viewer_interests) & set(candidate_interests_map[c['id']]))
                 recency = recency_score(c.get('last_active'))
-                return 0.5 * vibe + 0.3 * overlap + 0.2 * recency
+                liked_you = c.get('liked_you', 0)
+                pass_count = c.get('pass_count', 0)
+
+                # Weighted score
+                score = (0.45 * vibe +
+                        0.25 * overlap +
+                        0.2 * recency +
+                        0.1 * liked_you)
+
+                # Soft penalty if passed once
+                if pass_count == 1:
+                    score *= 0.5
+
+                return score
 
             candidates.sort(key=rank, reverse=True)
+
+            # Take top 50, shuffle lightly for freshness
             top = candidates[:50]
             random.shuffle(top)
             return top
@@ -365,8 +412,7 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting matches for user {user_id}: {e}")
             return []
-        
-    
+
     
     async def count_active_users(self, minutes: int = 10) -> int:
         query = """
@@ -394,7 +440,6 @@ class Database:
 # --- Interests Helpers ---
 
     async def get_user_interests(self, user_id: int) -> List[str]:
-        """Fetch all interest names for a given user."""
         query = """
             SELECT ic.name
             FROM interests i
@@ -403,7 +448,13 @@ class Database:
         """
         async with self._db.execute(query, (user_id,)) as cursor:
             rows = await cursor.fetchall()
-            return [row["name"] for row in rows]
+            return [row[0] for row in rows]
+        
+    async def get_other_user_ids(self, user_id: int) -> List[int]:
+        query = "SELECT id FROM users WHERE id != ?"
+        async with self._db.execute(query, (user_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
 
     async def set_user_interests(self, user_id: int, interests: List[str]):
         """
@@ -447,18 +498,16 @@ class Database:
 
     
 
-
-
     async def add_like(self, liker_id: int, liked_id: int) -> dict:
         try:
-            # Insert like
-            async with self._db.execute(
-                "INSERT INTO likes (liker_id, liked_id) VALUES (?, ?)",
+            # Insert like (ignore if already exists)
+            await self._db.execute(
+                "INSERT OR IGNORE INTO likes (liker_id, liked_id) VALUES (?, ?)",
                 (liker_id, liked_id)
-            ):
-                pass
+            )
+            await self._db.commit()
 
-            # Check reverse like
+            # Check reverse like (did the other person already like you?)
             async with self._db.execute(
                 "SELECT id FROM likes WHERE liker_id = ? AND liked_id = ?",
                 (liked_id, liker_id)
@@ -466,6 +515,7 @@ class Database:
                 reverse_like = await cursor.fetchone()
 
             if reverse_like:
+                # Create a match
                 user1_id = min(liker_id, liked_id)
                 user2_id = max(liker_id, liked_id)
                 async with self._db.execute(
@@ -474,6 +524,7 @@ class Database:
                 ) as cursor:
                     match_id = cursor.lastrowid
 
+                # Reward both users
                 await self.add_coins(liker_id, 30, 'match', 'You got a new match!')
                 await self.add_coins(liked_id, 30, 'match', 'You got a new match!')
 
@@ -481,18 +532,19 @@ class Database:
                 await self.update_leaderboard_cache()
                 return {"status": "match", "match_id": match_id}
 
-            await self._db.commit()
+            # If no reverse like, just a one‑sided like
             await self.update_leaderboard_cache()
+            
             return {"status": "liked"}
 
         except Exception as e:
             logger.error(f"Error adding like from {liker_id} to {liked_id}: {e}")
             await self._db.rollback()
             return {"status": "error"}
+
+    
+   
         
-    
-    
-    
     async def get_user_stats(self, user_id: int) -> Dict:
         stats = {'likes_sent': 0, 'likes_received': 0, 'matches': 0, 'referrals': 0}
         try:
@@ -590,49 +642,90 @@ class Database:
 
 
 
-    async def unmatch(self, match_id: int, user_id: int) -> bool:
+    async def get_match_by_id(self, match_id: int) -> Optional[Dict]:
+        async with self._db.execute(
+            "SELECT id as match_id, user1_id, user2_id, chat_active, revealed FROM matches WHERE id = ?",
+            (match_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row:
+            return {
+                "match_id": row["match_id"],
+                "user1_id": row["user1_id"],
+                "user2_id": row["user2_id"],
+                "chat_active": bool(row["chat_active"]),
+                "revealed": bool(row["revealed"]),
+            }
+        return None
+
+
+    async def unmatch(self, match_id: int, user_id: int) -> Optional[Dict]:
         """
-        Soft unmatch: sets chat_active = FALSE for this match.
-        Deletes likes between users so they can like again.
+        Soft unmatch:
+        - Sets chat_active = FALSE
+        - Resets revealed = FALSE
+        - Deletes likes between users so they can like again
+        - Returns updated match row for verification
         """
         try:
-            # 1️⃣ Fetch the match first
+            # Fetch the match first
             async with self._db.execute(
-                "SELECT user1_id, user2_id FROM matches WHERE id = ?",
+                "SELECT id as match_id, user1_id, user2_id, chat_active, revealed "
+                "FROM matches WHERE id = ?",
                 (match_id,)
             ) as cursor:
                 row = await cursor.fetchone()
 
             if not row:
                 logger.error(f"No match found with id {match_id} for user {user_id}")
-                return False
+                return None
+
+            logger.info(f"Before unmatch - match row: {row}")
 
             user1_id, user2_id = row['user1_id'], row['user2_id']
             if user_id not in (user1_id, user2_id):
                 logger.error(f"User {user_id} is not part of match {match_id}")
-                return False
+                return None
 
             other_user_id = user2_id if user1_id == user_id else user1_id
 
-            # 2️⃣ Soft unmatch
+            # Soft unmatch + reset reveal
             await self._db.execute(
-                "UPDATE matches SET chat_active = FALSE WHERE id = ?",
+                "UPDATE matches SET chat_active = FALSE, revealed = FALSE WHERE id = ?",
                 (match_id,)
             )
 
-            # 3️⃣ Delete likes in both directions
+            # Delete likes in both directions
             await self._db.execute(
                 "DELETE FROM likes WHERE (liker_id = ? AND liked_id = ?) OR (liker_id = ? AND liked_id = ?)",
                 (user_id, other_user_id, other_user_id, user_id)
             )
 
             await self._db.commit()
-            return True
+            logger.info(f"Unmatched successfully for match_id={match_id}, user_id={user_id}")
+
+            # Fetch updated match row
+            async with self._db.execute(
+                "SELECT id as match_id, user1_id, user2_id, chat_active, revealed "
+                "FROM matches WHERE id = ?",
+                (match_id,)
+            ) as cursor:
+                updated_row = await cursor.fetchone()
+
+            logger.info(f"After unmatch - updated match row: {updated_row}")
+
+            return {
+                "match_id": updated_row["match_id"],
+                "user1_id": updated_row["user1_id"],
+                "user2_id": updated_row["user2_id"],
+                "chat_active": bool(updated_row["chat_active"]),
+                "revealed": bool(updated_row["revealed"]),
+            }
 
         except Exception as e:
             logger.error(f"Error unmatching {match_id} by {user_id}: {e}")
             await self._db.rollback()
-            return False
+            return None
 
 
     async def get_who_liked_me(self, user_id: int) -> list[dict]:
@@ -741,6 +834,27 @@ class Database:
         except Exception as e:
             logger.error(f"Error fetching match between {user1_id} and {user2_id}: {e}")
             return None
+
+
+    async def get_active_match_between(self, user1_id: int, user2_id: int) -> Optional[Dict]:
+        sql = """
+            SELECT id as match_id, user1_id, user2_id, chat_active, revealed
+            FROM matches
+            WHERE chat_active = 1
+            AND ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
+            LIMIT 1
+        """
+        async with self._db.execute(sql, (user1_id, user2_id, user2_id, user1_id)) as cursor:
+            row = await cursor.fetchone()
+        if row:
+            return {
+                "match_id": row["match_id"],
+                "user1_id": row["user1_id"],
+                "user2_id": row["user2_id"],
+                "chat_active": bool(row["chat_active"]),
+                "revealed": bool(row["revealed"]),
+            }
+        return None
 
 
     async def save_chat_message(self, match_id: int, sender_id: int, message: str) -> bool:

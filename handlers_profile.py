@@ -142,7 +142,20 @@ def get_department_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+@router.message(F.text == "✍️ Edit Name/Bio")
+async def open_edit_name_bio_tab(message: Message, state: FSMContext):
+    """Replace keyboard with Edit Name / Change Bio options."""
+    await message.answer(
+        "✍️ What would you like to edit?",
+        reply_markup=get_edit_name_bio_keyboard()
+    )
 
+# Listener for back to main edit menu from the second-level menu
+@router.message(F.text == "⬅️ Back")
+async def back_to_main_edit_tab(message: Message, state: FSMContext):
+    await show_edit_profile_menu_from_main(message, state, edit=False)
+
+    
 def get_year_keyboard():
     rows = []
     year_items = list(YEARS.items())
@@ -171,18 +184,97 @@ def get_vibe_keyboard(question_idx: int):
     return keyboard
 # --- Main Edit Profile Keyboard ---
 def get_edit_profile_main_keyboard() -> ReplyKeyboardMarkup:
+    """
+    First-level menu: core edits, buttons side by side.
+    """
     return ReplyKeyboardMarkup(
-        keyboard = [
-            [KeyboardButton(text="📝 Change Name"), KeyboardButton(text="✍️ Change Bio")],
-            [KeyboardButton(text="📸 Change Photo"), KeyboardButton(text="🔄 Change Identity/Seeking")],
-            [KeyboardButton(text="💫 Retake Vibe Quiz"), KeyboardButton(text="🎓 Change Academic Info")],
-            [KeyboardButton(text="🎯 Edit Interests")],
-            [KeyboardButton(text="🔙 Back to Main Menu")]
+        keyboard=[
+            [
+                KeyboardButton(text="✍️ Edit Name/Bio"),
+                KeyboardButton(text="📸 Change Photo")
+            ],
+            [
+                KeyboardButton(text="🔄 Change Identity/Seeking"),
+                KeyboardButton(text="➡️ More")
+            ],
+            [
+                KeyboardButton(text="🔙 Back to Main Menu")
+            ]
         ],
-        
         resize_keyboard=True,
         is_persistent=True
     )
+
+
+
+# Second-level menu for Edit Name / Change Bio
+def get_edit_name_bio_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📝 Edit Name"), KeyboardButton(text="✍️ Change Bio")],
+            [KeyboardButton(text="⬅️ Back")]
+        ],
+        resize_keyboard=True,
+        is_persistent=True
+    )
+def get_edit_profile_more_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Second-level menu: extras, side by side
+    """
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="💫 Retake Vibe Quiz"),
+                KeyboardButton(text="🎓 Change Academic Info")
+            ],
+            [
+                KeyboardButton(text="🎯 Edit Interests")
+            ],
+            [
+                KeyboardButton(text="⬅️ Back")
+            ]
+        ],
+        resize_keyboard=True,
+        is_persistent=True
+    )
+
+
+
+def get_edit_profile_more_inline_keyboard() -> InlineKeyboardMarkup:
+    """Second-level edit menu for InlineKeyboardMarkup."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💫 Retake Vibe Quiz", callback_data="edit_vibe"),
+            InlineKeyboardButton(text="🎓 Change Academic Info", callback_data="edit_academic")
+        ],
+        [
+            InlineKeyboardButton(text="🎯 Edit Interests", callback_data="edit_interests"),
+            InlineKeyboardButton(text="⬅️ Back", callback_data="back_main_edit")
+        ]
+    ])
+
+@router.message(F.text == "➡️ More")
+async def open_more_edit_tab(message: Message, state: FSMContext):
+    """Show the second-level edit menu as a new message."""
+    await message.answer(
+        "🎛️ Additional Profile Options",
+        reply_markup=get_edit_profile_more_keyboard()
+    )
+
+# Handle the "Back" button
+@router.callback_query(F.data == "back_main_edit")
+async def back_to_main_edit_tab(callback: CallbackQuery, state: FSMContext):
+    """Return to the main edit menu by editing the bot's message."""
+    try:
+        # Try to edit the message
+        await show_edit_profile_menu_from_main(callback.message, state, edit=True)
+    except Exception as e:
+        # Fallback: send a new message if edit fails
+        await show_edit_profile_menu_from_main(callback.message, state, edit=False)
+        logger.warning(f"Failed to edit message, sent new one instead: {e}")
+
+    await callback.answer()
+
 
 def get_academic_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -194,49 +286,99 @@ def get_academic_inline_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 # --- New Reply Keyboard Entry Point ---
-async def show_edit_profile_menu_from_main(message: Message, state: FSMContext):
+
+
+async def show_edit_profile_menu_from_main(message: Message, state: FSMContext, edit: bool = False):
     """
-    The entry point called from handlers_main.py when the user presses 
-    '✏️ Edit Profile' (a Reply Keyboard button).
+    Show the user's profile in edit mode with stats, coins, status,
+    interests (priority to shared), profile completeness and rating.
     """
-    await state.clear() 
-    user = await db.get_user(message.from_user.id)
+    await state.clear()
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
 
     if not user:
         await message.answer("Error: Profile data not found. Use /start to create one.")
         return
 
-    # Use the existing logic to format the profile text
-    stats = await db.get_user_stats(message.from_user.id)
+    # Get user stats
+    stats = await db.get_user_stats(user_id)
 
+    # --- Status ---
+
+    # --- Interests ---
+    candidate_interests = await db.get_user_interests(user_id)
+
+    # Fetch shared interests (intersection with all other users)
+    shared_interests = []
+    other_user_ids = await db.get_other_user_ids(user_id)
+    for other_id in other_user_ids:
+        other_interests = await db.get_user_interests(other_id)
+        shared_interests += list(set(candidate_interests) & set(other_interests))
+    shared_interests = list(dict.fromkeys(shared_interests))  # Remove duplicates, keep order
+
+    # Prioritize shared interests, then add others
+    final_interests = shared_interests[:3]
+    if len(final_interests) < 3:
+        for i in candidate_interests:
+            if i not in final_interests:
+                final_interests.append(i)
+            if len(final_interests) >= 3:
+                break
+
+    interests_text = " | ".join(final_interests) if final_interests else "No interests yet."
+
+
+    # --- Profile Completeness ---
+    completeness_score = 0
+    fields = ["name", "bio", "campus", "department", "year", "photo_file_id", "status", "coins"]
+    for f in fields:
+        if user.get(f):
+            completeness_score += 1
+    completeness_percent = int(completeness_score / len(fields) * 100)
+
+    # Assign a rating
+    if completeness_percent >= 90:
+        completeness_label = "🌟 Excellent"
+    elif completeness_percent >= 70:
+        completeness_label = "⚡ Good"
+    elif completeness_percent >= 50:
+        completeness_label = "✨ Fair"
+    else:
+        completeness_label = "🔹 Needs Work"
+
+        # --- Build profile text ---
     profile_text = (
         f"👤 **{user['name']}**\n"
         f"📍 {user['campus']} | {user['department']}\n"
         f"🎓 {user['year']}\n\n"
         f"💭 {user['bio']}\n\n"
-        f"📊 **Your Stats:**\n"
+        f"✨ Interests ({len(final_interests)}/3):\n{interests_text}\n\n"
+         f"📊 **Your Stats:**\n"
         f"❤️ {stats['likes_received']} people liked you\n"
         f"💫 {stats['likes_sent']} likes sent\n"
         f"🔥 {stats['matches']} matches\n\n"
         f"🪙 **{user['coins']} Coins**\n\n"
-        f"**What would you like to edit?** Select an option below. 👇"
+        f"⚡ Profile Complete: {completeness_percent}% — {completeness_label}\n\n"
     )
 
-    # Send a new message with the photo, details, and the new Reply Keyboard
-    if user.get('photo_file_id'):
+
+    # --- Send message ---
+    if user.get("photo_file_id"):
         await message.answer_photo(
             photo=user['photo_file_id'],
             caption=profile_text,
             reply_markup=get_edit_profile_main_keyboard(),
+
             parse_mode=ParseMode.MARKDOWN
         )
     else:
         await message.answer(
-            profile_text, 
-            reply_markup=get_edit_profile_main_keyboard(), 
+            profile_text,
+            reply_markup=get_edit_profile_main_keyboard(),
+
             parse_mode=ParseMode.MARKDOWN
         )
-        
 
 @router.message(F.text == "🔙 Back to Main Menu")
 async def back_to_main_menu_from_edit_reply(message: Message, state: FSMContext):
@@ -269,7 +411,7 @@ async def start_edit_bio_reply(message: Message, state: FSMContext):
     await state.set_state(EditProfile.editing_bio)
 
 
-@router.message(F.text == "📝 Change Name")
+@router.message(F.text == "📝 Edit Name")
 async def start_edit_name_reply(message: Message, state: FSMContext):
     """Triggers the name edit FSM state, with an inline Cancel button."""
     user = await db.get_user(message.from_user.id)
@@ -297,9 +439,7 @@ async def cancel_edit_name(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
         "❌ Name update canceled.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Back to Profile", callback_data="my_profile")]
-        ])
+      
     )
     await callback.answer("Canceled.")
 
@@ -356,9 +496,7 @@ async def cancel_edit_photo(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
         "❌ Photo update canceled.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Back to Profile", callback_data="my_profile")]
-        ])
+        
     )
     await callback.answer("Canceled.")
 
@@ -369,9 +507,7 @@ async def cancel_edit_bio(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
         "❌ Bio editing canceled.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Back to Profile", callback_data="my_profile")]
-        ])
+      
     )
     await callback.answer("Canceled.")
 
@@ -989,9 +1125,7 @@ async def cancel_edit_bio(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
         "❌ Bio update canceled.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Back to Profile", callback_data="my_profile")]
-        ])
+        
     )
     await callback.answer("Canceled.")
 
@@ -1263,6 +1397,9 @@ async def edit_academic_year(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(EditProfile.editing_year)
     await callback.answer()
+    
+    
+    
 
 @router.callback_query(F.data == "academic_cancel")
 async def cancel_edit_academic(callback: CallbackQuery, state: FSMContext):
@@ -1443,11 +1580,12 @@ async def back_to_edit_categories(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("interest_"), EditProfile.editing_interests)
 async def toggle_interest_edit(callback: CallbackQuery, state: FSMContext):
-    """Toggle an interest on/off inside a category (with summary + counter)."""
+    """Toggle an interest on/off inside a category (with live summary + automatic DB save)."""
     interest = callback.data.split("interest_")[1]
     data = await state.get_data()
     selected = data.get("interests", [])
     category_idx = data.get("current_category")
+    user_id = callback.from_user.id
 
     MAX_INTERESTS = 7
 
@@ -1464,18 +1602,22 @@ async def toggle_interest_edit(callback: CallbackQuery, state: FSMContext):
         selected.append(interest)
         action = "Added"
 
+    # --- Update FSM state ---
     await state.update_data(interests=selected)
 
-    # Build summary line with counter
-    if selected:
-        summary = (
-            f"✨ <b>Selected so far ({len(selected)}/{MAX_INTERESTS}):</b>\n"
-            + " • " + "\n • ".join(selected) + "\n\n"
-        )
-    else:
-        summary = "✨ <i>No interests selected yet.</i>\n\n"
+    # --- Save immediately to DB ---
+    try:
+        await db.set_user_interests(user_id, selected)
+    except Exception as e:
+        logger.error(f"Error saving interests for user {user_id}: {e}")
 
-    # Refresh the current category view with updated ✅ marks + summary
+    # --- Build summary line with counter ---
+    summary = (
+        f"✨ <b>Selected so far ({len(selected)}/{MAX_INTERESTS}):</b>\n"
+        + " • " + "\n • ".join(selected) + "\n\n"
+    ) if selected else "✨ <i>No interests selected yet.</i>\n\n"
+
+    # --- Refresh the current category view with updated ✅ marks ---
     await callback.message.edit_text(
         f"{INTEREST_CATEGORIES[category_idx]['category']}\n\n"
         f"{summary}"

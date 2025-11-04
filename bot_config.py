@@ -31,6 +31,14 @@ AAU_DEPARTMENTS = {
     "📚 Other": "Other",
 }
 
+RATE_LIMIT_MESSAGES = [
+    "⏳ Chill a sec!",
+    "🐢 Slow‑mo mode!",
+    "🚦 Red light!",
+    "🔥 Too spicy, cool down!"
+]
+
+
 LIKE_CONFIRMATIONS = [
     "❤️ Locked in!",
     "🔥 Sent your vibe!",
@@ -70,7 +78,7 @@ COIN_REWARDS = {
     'referral': 50,
     'confession': 5,
     'profile_complete': 20,
-    'first_match': 30
+    'first_match': 10
 }
 
 COIN_COSTS = {
@@ -207,7 +215,7 @@ ALL_INTERESTS = [opt for cat in INTEREST_CATEGORIES for opt in cat["options"]]
 
 MAX_BIO_LENGTH = 200
 MAX_CONFESSION_LENGTH = 500
-DAILY_LIKE_LIMIT = 50
+DAILY_LIKE_LIMIT = 30
 
 
 # Breaker lines for match moments
@@ -221,9 +229,8 @@ MATCH_BREAKERS = [
 
 # Celebration GIFs for matchback (sender)
 MATCHBACK_GIFS = [
-    "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # confetti
-    "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",  # hearts
-    "https://media.giphy.com/media/26FLdmIp6wJr91JCM/giphy.gif",  # fireworks
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExa2l6M3hpYXYyNm85OTkwajg2dXRxbmo0ejU4b3phdjhwMnNmaTlvdCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/epbQ7l3UQor7y/giphy.gif",  # confetti
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExaTBqZTZzd2ZkZTJ3NmFsbXZpejF1Y2JqM2UzNGtmNjhmOXBqN29tYSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/c1R3XcUXVWAFy/giphy.gif",  # fireworks
 ]
 
 # Surprise GIFs for admirer (receiver)

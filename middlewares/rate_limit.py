@@ -1,8 +1,11 @@
+import random
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
 from typing import Callable, Dict, Any, Awaitable
 from datetime import datetime, timedelta
 import json
+
+from bot_config import RATE_LIMIT_MESSAGES
 
 
 class RateLimitMiddleware(BaseMiddleware):
@@ -22,13 +25,12 @@ class RateLimitMiddleware(BaseMiddleware):
         if user_id in self.user_last_action:
             time_passed = (now - self.user_last_action[user_id]).total_seconds()
             if time_passed < self.rate_limit:
-                lang_data = data.get('lang_data', {})
-                rate_limit_msg = lang_data.get('rate_limit', 'Please slow down!')
+                rate_limit_msg = random.choice(RATE_LIMIT_MESSAGES)
 
-                if isinstance(event, Message):
-                    await event.answer(rate_limit_msg)
-                elif isinstance(event, CallbackQuery):
+                if isinstance(event, CallbackQuery):
+                    # Show popup with OK button
                     await event.answer(rate_limit_msg, show_alert=True)
+                # For Message events, just ignore (no chat clutter)
                 return
 
         self.user_last_action[user_id] = now

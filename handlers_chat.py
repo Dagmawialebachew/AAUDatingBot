@@ -13,10 +13,12 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from aiogram.utils.text_decorations import html_decoration as hd
+
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from database import db
 
-from utils import calculate_vibe_compatibility, format_profile_text, get_random_icebreaker
+from utils import calculate_vibe_compatibility, format_profile_text, get_random_icebreaker, vibe_label
 from handlers_main import show_main_menu
 import random
 logger = logging.getLogger(__name__)
@@ -72,6 +74,8 @@ def caption_header(other_user: dict, revealed: bool) -> str:
 
 def build_header_keyboard(match_id: int, revealed: bool) -> InlineKeyboardMarkup:
     rows = []
+
+    # Reveal button for unrevealed users
     if not revealed:
         rows.append([
             InlineKeyboardButton(
@@ -79,13 +83,101 @@ def build_header_keyboard(match_id: int, revealed: bool) -> InlineKeyboardMarkup
                 callback_data=f"reveal_{match_id}"
             )
         ])
+
+    # Row with Unmatch + View Full Profile
     rows.append([
         InlineKeyboardButton(
             text="❌ Unmatch",
             callback_data=f"unmatch_confirm_{match_id}"
+        ),
+        InlineKeyboardButton(
+            text="👤 View Full Profile",
+            callback_data=f"viewprofile_from_chat_{match_id}"
         )
     ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+
+
+@router.callback_query(F.data.startswith("viewprofile_from_chat_"))
+async def view_profile_from_chat(callback: CallbackQuery):
+    raw = callback.data
+    try:
+        match_id = int(raw.split("_")[-1])
+    except Exception:
+        await callback.answer("Invalid profile reference 💀", show_alert=True)
+        return
+
+    viewer_id = callback.from_user.id
+
+    # Fetch match data
+    match_data = await get_match_data_for_chat(viewer_id, match_id)
+    if not match_data:
+        await callback.answer("Profile not found 💀", show_alert=True)
+        return
+
+    other_user = match_data["user"]
+    revealed = match_data["revealed"]
+
+    # Fetch interests
+    candidate_interests = await db.get_user_interests(other_user["id"])
+    viewer_interests = await db.get_user_interests(viewer_id)
+
+    # Build profile
+    profile_text = await format_profile_text(
+        other_user,
+        show_full=True,
+        revealed=revealed,
+        candidate_interests=candidate_interests,
+        viewer_interests=viewer_interests
+    )
+
+    # Buttons: Unmatch + Back to Chat
+    actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="❌ Unmatch",
+                callback_data=f"unmatch_confirm_{match_id}"
+            ),
+            InlineKeyboardButton(
+                text="🔙 Back to Chat",
+                callback_data=f"chat_{match_id}"
+            )
+        ]
+    ])
+
+    # Delete previous message before sending new profile
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # Send profile
+    try:
+        if revealed and other_user.get("photo_file_id"):
+            await callback.message.answer_photo(
+                photo=other_user["photo_file_id"],
+                caption=profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await callback.message.answer(
+                profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error("Error sending full profile: %s", e)
+        await callback.message.answer(
+            profile_text,
+            reply_markup=actions_kb,
+            parse_mode=ParseMode.HTML
+        )
+
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("unmatch_confirm_"))
@@ -103,13 +195,32 @@ async def confirm_unmatch(callback: CallbackQuery):
         ]
     ])
 
-    await callback.message.edit_caption(
+    text = (
         "⚠️ Are you sure you want to unmatch?\n\n"
-        "This will close the chat and put them back into your Likes/Admirers lists.",
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML
+        "This will close the chat and put them back into your Likes/Admirers lists."
     )
-    await callback.answer()
+
+    # ✅ Check if the message has a caption (photo/video/etc.)
+    try:
+        if getattr(callback.message, "caption", None) is not None:
+            await callback.message.edit_caption(
+                text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await callback.message.edit_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+        await callback.answer()
+
+    except Exception as e:
+        await callback.answer("Something went wrong 💀")
+        print(f"⚠️ confirm_unmatch error: {e}")
+
 
 @router.callback_query(F.data.startswith("unmatch_"))
 async def handle_unmatch(callback: CallbackQuery, state: FSMContext):
@@ -126,19 +237,33 @@ async def handle_unmatch(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Could not unmatch 💀", show_alert=True)
         return
 
+    # Fetch the updated match row for notifications
+    updated_match = await db.get_match_by_id(match_id)
+    logger.info(f"Updated match after unmatch: {updated_match}")
+
+
     # Clean up active session
     active_chats.pop(user_id, None)
     pinned_cards.get(user_id, {}).pop(match_id, None)
     await state.update_data(active_chat=None, pinned_card_id=None)
 
     # Update UI
+    # Update UI safely
+    text = "💔 You’ve unmatched. This chat is now closed."
     try:
-        await callback.message.edit_caption(
-            "💔 You’ve unmatched. This chat is now closed.",
-            reply_markup=None
-        )
+        if getattr(callback.message, "caption", None) is not None:
+            await callback.message.edit_caption(
+                text,
+                reply_markup=None
+            )
+        else:
+            await callback.message.edit_text(
+                text,
+                reply_markup=None
+            )
     except Exception:
-        await callback.message.answer("💔 You’ve unmatched. This chat is now closed.")
+        await callback.message.answer(text)
+
 
     # Notify the other user
     try:
@@ -274,20 +399,23 @@ async def ensure_pinned_card_for_user(
 
 @router.callback_query(F.data.startswith("chat_"))
 async def start_chat(callback: CallbackQuery, state: FSMContext):
+    from handlers_likes import _safe_json_load
+
     """
-    Enter chat with a specific match, show profile photo as pinned header,
-    render recent messages in caption, and store pinned header per user.
-    Also removes the main menu reply keyboard so only text/voice are allowed.
+    Enter chat with a specific match.
+    - Revealed users get full profile photo and header.
+    - Unrevealed users get a cinematic teaser (partial info) and last messages.
     """
     parts = callback.data.split("_")
+    print('here are parts', parts)
     try:
         match_id = int(parts[1])
+        print('here is teh match id', match_id)
     except Exception:
         await callback.answer("Invalid chat reference 💀")
         return
 
     user_id = callback.from_user.id
-
     match_data = await get_match_data_for_chat(user_id, match_id)
     if not match_data:
         await callback.answer("Match not found or chat error 💀")
@@ -301,7 +429,7 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
     other_user = match_data["user"]
     revealed = match_data["revealed"]
 
-    # Save active session
+    # Save active chat session
     active_chats[user_id] = {
         "match_id": match_id,
         "other_user_id": other_user["id"],
@@ -310,65 +438,97 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
     await state.update_data(active_chat=match_id)
     await state.set_state(ChatState.in_chat)
 
-    # Fetch history
+    # --- Fetch last messages ---
     history = await db.get_chat_history(match_id, limit=10)
+    bubbles = []
+    for msg in history[-5:]:
+        sender_label = "🟢 You" if msg["sender_id"] == user_id else "🔵 Them"
+        bubbles.append(bubble(sender_label, h(msg.get("message", ""))))
+    history_text = "\n".join(bubbles) if bubbles else "✨ <i>No messages yet — break the ice!</i> 💬"
 
-    header = caption_header(other_user, revealed)
-    if history:
-        bubbles = []
-        for msg in history[-5:]:
-            sender_label = "🟢 You" if msg["sender_id"] == user_id else "🔵 Them"
-            bubbles.append(bubble(sender_label, h(msg.get("message", ""))))
-        history_text = "\n".join(bubbles)
+    # --- Build header/caption ---
+    if revealed:
+        header = caption_header(other_user, revealed=True)
+        caption = (
+            f"{header}\n\n"
+            f"📜 <u>Last messages</u>\n"
+            f"{history_text}\n\n"
+            f"───────────────\n\n"
+            f"💡 <i>Say hi or drop a voice note — your move.</i>"
+        )
     else:
-        history_text = "✨ <i>No messages yet — break the ice!</i> 💬"
+        # --- Cinematic teaser for unrevealed match ---
+        teaser_interests = await db.get_user_interests(other_user["id"])
+        tease_sample = random.sample(teaser_interests, min(2, len(teaser_interests))) if teaser_interests else []
+        interests_hint = f"💡 Hint: Into " + " & ".join(tease_sample) if tease_sample else ""
 
-    caption = (
-        f"{header}\n\n"
-        f"📜 <u>Last messages</u>\n"
-        f"{history_text}\n\n"
-        f"───────────────\n\n"
-        f"💡 <i>Say hi or drop a voice note — your move.</i>"
-    )
+        partial_name = other_user.get("name", "Anon")[:4] + "…"
+        campus = hd.quote(other_user.get("campus", ""))
+        department = hd.quote(other_user.get("department", ""))
+        year = hd.quote(str(other_user.get("year", "")))
+        bio = hd.quote(other_user.get("bio", ""))
 
+        # Safe vibe score
+        viewer = await db.get_user(user_id)
+        viewer_vibe = _safe_json_load(viewer.get("vibe_score", "{}") if viewer else "{}")
+        candidate_vibe = _safe_json_load(other_user.get("vibe_score", "{}"))
+        vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
+
+        header = f"🎭 Anonymous — {partial_name}"
+        caption = (
+            f"{header}\n"
+            "🔒 <b>Identity Hidden</b>\n"
+            f"🎓 {year}, {campus}\n"
+            f"{vibe_label(vibe_score)}\n\n"
+            f"{interests_hint}\n\n"
+            "🙈 <i>Photo blurred until reveal...</i>\n\n"
+            f"📜 <u>Last messages</u>\n"
+            f"{history_text}\n\n"
+            f"───────────────\n\n"
+            f"💡 <i>Send a message to break the ice!</i>"
+        )
+
+    # --- Build keyboard ---
     keyboard = build_header_keyboard(match_id, revealed)
-    photo_file_id = other_user.get("photo_file_id")
 
+    # --- Clean previous message ---
     try:
         await callback.message.delete()
     except Exception:
         pass
 
-    if photo_file_id:
+    # --- Send chat entry ---
+    if revealed and other_user.get("photo_file_id"):
         sent = await callback.message.answer_photo(
-            photo=photo_file_id,
+            photo=other_user["photo_file_id"],
             caption=caption,
             reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
+            parse_mode=ParseMode.HTML
         )
     else:
         sent = await callback.message.answer(
             caption,
             reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
+            parse_mode=ParseMode.HTML
         )
 
-    # Pin profile card
-    try:
-        await sent.pin(disable_notification=True)
-    except Exception:
-        pass
+    # Pin message only if revealed
+    if revealed:
+        try:
+            await sent.pin(disable_notification=True)
+        except Exception:
+            pass
+        pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
+        await state.update_data(pinned_card_id=sent.message_id)
 
-    pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
-    await state.update_data(pinned_card_id=sent.message_id)
-
-    # Remove the main menu reply keyboard so user only types/records
+    # --- Remove main menu keyboard and enter chat mode ---
     await callback.message.answer(
-    "💬 You’re now in chat mode. Type or send a voice note!",
-    reply_markup=chat_actions_kb
-)
+        "💬 You’re now in chat mode. Type or send a voice note!",
+        reply_markup=chat_actions_kb
+    )
 
     await callback.answer()
+
 
 @router.message(F.text == "🎲 Try Icebreaker")
 async def trigger_icebreaker_from_reply(message: Message, state: FSMContext):
@@ -824,7 +984,6 @@ async def cancel_icebreaker(callback: CallbackQuery, state: FSMContext):
         pass
 
 
-
 # ---------- Reveal identity ----------
 @router.callback_query(F.data.startswith("reveal_"))
 async def reveal_identity(callback: CallbackQuery, state: FSMContext):
@@ -858,8 +1017,8 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
     try:
         # 3) Persist reveal state
         if not await db.reveal_match_identity(match_id, user_id):
-            await db.update_user(user_id, {"$inc": {"coins": COST}})
-            await callback.answer("Failed to update match status 💀 (coins refunded)", show_alert=True)
+            # First refund path
+            await db.add_coins(user_id, COST, "purchase", "Reveal failed – coins refunded")
             return
 
         # Keep active chat state in sync
@@ -869,9 +1028,23 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
         # 4) Fetch match data for the revealed card
         match_data = await get_match_data_for_chat(user_id, match_id)
         if not match_data:
-            await db.update_user(user_id, {"$inc": {"coins": COST}})
+    # Log the failure reason
+            logger.warning(
+                "Reveal failed for user_id=%s: match_data is missing. Refund issued.",
+                user_id,
+                extra={
+                    "callback_data": callback.data,
+                    "cost": COST
+                }
+            )
+
+            # Refund coins
+            await db.add_coins(user_id, COST, "purchase", "Reveal failed – coins refunded")
+
+            # Notify the user
             await callback.answer("Reveal failed 💀 (coins refunded)", show_alert=True)
             return
+
 
         other_user = match_data["user"]
         data = await state.get_data()
@@ -893,8 +1066,6 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
         vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
 
         profile_text = await format_profile_text(other_user, show_full=True)
-
-# Add vibe match line
         profile_text += f"\n✨ Vibe Match: {vibe_score}%"
 
         # Add breaker + header
@@ -908,10 +1079,9 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🔙 Back to Matches", callback_data="back_from_chat")],
         ])
 
-        # 8) Deliver the reveal (photo + caption preferred, fallback to text)
+        # 8) Deliver the reveal
         try:
             if other_user.get("photo_file_id"):
-                # Clean UX: remove old inline message
                 try:
                     await callback.message.delete()
                 except Exception:
@@ -924,7 +1094,6 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
                     parse_mode=ParseMode.HTML
                 )
             else:
-                # If no photo, prefer editing text; fallback to sending new message
                 try:
                     await callback.message.edit_text(
                         reveal_caption,
@@ -963,8 +1132,7 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
         # 10) Global safeguard: refund on unexpected crash
         logger.exception(f"Reveal identity crashed: {e}")
         try:
-            await db.update_user(user_id, {"$inc": {"coins": COST}})
+            await db.add_coins(user_id, COST, "purchase", "Reveal failed – coins refunded")
         except Exception as re:
             logger.error(f"Failed to refund coins to {user_id}: {re}")
         await callback.answer("Reveal failed 💀 (coins refunded)", show_alert=True)
-        

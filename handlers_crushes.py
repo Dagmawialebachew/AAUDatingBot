@@ -63,7 +63,9 @@ def _generate_list_pagination_keyboard(
             text = f"💬 {item_user['name']}" if item.get('revealed') else f"🎭 Anonymous Match"
             callback_data = f"chat_{item['match_id']}_{current_page}"
         elif list_type == 'admirers':
-            text = f"👤 {item_user['name']}"
+            # Show only first 4 characters of the name
+            safe_name = item_user['name'][:4] + "…" if item_user.get('name') else "Anon…"
+            text = f"👤 {safe_name}"
             callback_data = f"viewprofile_{item_user['id']}_admirers_{current_page}"
         else:  # 'likes'
             text = f"👤 {item_user['name']}"
@@ -160,12 +162,18 @@ async def _render_crush_list_view(
     for idx, item in enumerate(list_data[start_index:end_index]):
         user = item['user'] if list_type == 'matches' else item
         safe_name = hd.quote(user.get("name", "Unknown"))
+        # Limit to first 4 characters, append ellipsis if longer
+        full_name = user.get("name", "Unknown")
+        safe_name = hd.quote(full_name[:4] + "…" if len(full_name) > 4 else full_name)
+
 
         if list_type == 'matches':
             status = "✅ Revealed" if item.get('revealed') else "🎭 Hidden"
             list_summary += f"{start_index + idx + 1}. <b>{safe_name}</b> — {status}\n"
         elif list_type == 'admirers':
-            list_summary += f"{start_index + idx + 1}. <b>{safe_name}</b> — Tap to view/match\n"
+        # 👀 Hide name until user taps
+            list_summary += f"{start_index + idx + 1}. 🎭 Anonymous Admirer — Tap to view/match\n"
+
         elif list_type == 'likes':
             WAITING_VARIANTS = [
                 "⏳ Still cooking…",
@@ -245,91 +253,91 @@ async def start_show_my_likes(message: Message, state: FSMContext):
     await _render_crush_list_view(message, state, message.from_user.id, 'likes', page=0)
 
 
-@router.callback_query(F.data.startswith("viewprofile_"))
-async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
-    """
-    Show a profile from Likes/Admirers list.
-    Includes profile photo, vibe score, and context-aware action buttons.
-    """
-    try:
-        _, user_id_str, list_type, page_str = callback.data.split("_")
-        target_id = int(user_id_str)
-        page = int(page_str)
-    except Exception:
-        await callback.answer("Invalid profile reference 💀", show_alert=True)
-        return
+# @router.callback_query(F.data.startswith("viewprofile_"))
+# async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
+#     """
+#     Show a profile from Likes/Admirers list.
+#     Includes profile photo, vibe score, and context-aware action buttons.
+#     """
+#     try:
+#         _, user_id_str, list_type, page_str = callback.data.split("_")
+#         target_id = int(user_id_str)
+#         page = int(page_str)
+#     except Exception:
+#         await callback.answer("Invalid profile reference 💀", show_alert=True)
+#         return
 
-    candidate = await db.get_user(target_id)
-    if not candidate:
-        await callback.answer("Profile not found 💀", show_alert=True)
-        return
+#     candidate = await db.get_user(target_id)
+#     if not candidate:
+#         await callback.answer("Profile not found 💀", show_alert=True)
+#         return
 
-    viewer_id = callback.from_user.id
-    viewer = await db.get_user(viewer_id)
+#     viewer_id = callback.from_user.id
+#     viewer = await db.get_user(viewer_id)
 
-    # --- vibe score calc ---
-    viewer_vibe = json.loads(viewer.get('vibe_score', '{}') or '{}')
-    candidate_vibe = json.loads(candidate.get('vibe_score', '{}') or '{}')
-    vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
+#     # --- vibe score calc ---
+#     viewer_vibe = json.loads(viewer.get('vibe_score', '{}') or '{}')
+#     candidate_vibe = json.loads(candidate.get('vibe_score', '{}') or '{}')
+#     vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
 
-    # --- Build profile text safely ---
-    profile_text = await format_profile_text(candidate, vibe_score=vibe_score, show_full=False)
-    await callback.message.answer(profile_text, parse_mode="HTML")  # ✅ correct
+#     # --- Build profile text safely ---
+#     profile_text = await format_profile_text(candidate, vibe_score=vibe_score, show_full=False)
+#     await callback.message.answer(profile_text, parse_mode="HTML")  # ✅ correct
 
 
-    # --- Rotating breaker lines ---
-    breakers = [
-        "─────────────── ✨ ───────────────",
-        "💘 Another crush appears...",
-        "🎭 A new face steps into the spotlight",
-        "⚡ Fresh profile unlocked!",
-        "🌟 Who’s this? Let’s find out..."
-    ]
-    breaker_line = random.choice(breakers)
-    try:
-        await callback.message.answer(breaker_line)
-    except Exception:
-        pass
+#     # --- Rotating breaker lines ---
+#     breakers = [
+#         "─────────────── ✨ ───────────────",
+#         "💘 Another crush appears...",
+#         "🎭 A new face steps into the spotlight",
+#         "⚡ Fresh profile unlocked!",
+#         "🌟 Who’s this? Let’s find out..."
+#     ]
+#     breaker_line = random.choice(breakers)
+#     try:
+#         await callback.message.answer(breaker_line)
+#     except Exception:
+#         pass
 
-    # --- Inline actions depending on list_type ---
-    if list_type == "admirers":
-        actions_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❤️ Like Back (Match!)", callback_data=f"likeback_{target_id}")],
-            [InlineKeyboardButton(text="❌ Ignore", callback_data=f"ignore_{target_id}")]
-        ])
-    elif list_type == "likes":
-        actions_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Remove Like", callback_data=f"unlike_{target_id}")]
-        ])
-    else:
-        actions_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Back", callback_data=f"backtolist_{list_type}_{page}")]
-        ])
+#     # --- Inline actions depending on list_type ---
+#     if list_type == "admirers":
+#         actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+#             [InlineKeyboardButton(text="❤️ Like Back (Match!)", callback_data=f"likeback_{target_id}")],
+#             [InlineKeyboardButton(text="❌ Ignore", callback_data=f"ignore_{target_id}")]
+#         ])
+#     elif list_type == "likes":
+#         actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+#             [InlineKeyboardButton(text="❌ Remove Like", callback_data=f"unlike_{target_id}")]
+#         ])
+#     else:
+#         actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+#             [InlineKeyboardButton(text="🔙 Back", callback_data=f"backtolist_{list_type}_{page}")]
+#         ])
 
-    # --- Profile card with photo if available ---
-    try:
-        if candidate.get("photo_file_id"):
-            await callback.message.answer_photo(
-                photo=candidate["photo_file_id"],
-                caption=profile_text,
-                reply_markup=actions_kb,
-                parse_mode=ParseMode.HTML   # ✅ consistent with our latest updates
-            )
-        else:
-            await callback.message.answer(
-                profile_text,
-                reply_markup=actions_kb,
-                parse_mode=ParseMode.HTML
-            )
-    except Exception as e:
-        logger.error(f"Error showing profile: {e}")
-        await callback.message.answer(
-            profile_text,
-            reply_markup=actions_kb,
-            parse_mode=ParseMode.HTML
-        )
+#     # --- Profile card with photo if available ---
+#     try:
+#         if candidate.get("photo_file_id"):
+#             await callback.message.answer_photo(
+#                 photo=candidate["photo_file_id"],
+#                 caption=profile_text,
+#                 reply_markup=actions_kb,
+#                 parse_mode=ParseMode.HTML   # ✅ consistent with our latest updates
+#             )
+#         else:
+#             await callback.message.answer(
+#                 profile_text,
+#                 reply_markup=actions_kb,
+#                 parse_mode=ParseMode.HTML
+#             )
+#     except Exception as e:
+#         logger.error(f"Error showing profile: {e}")
+#         await callback.message.answer(
+#             profile_text,
+#             reply_markup=actions_kb,
+#             parse_mode=ParseMode.HTML
+#         )
 
-    await callback.answer()
+#     await callback.answer()
 
 # --- 2. Pagination Handler (No changes, it calls the corrected _render) ---
 
@@ -408,35 +416,6 @@ async def handle_admirer_selection(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-
-# @router.callback_query(F.data.startswith("matchback_"))
-# async def handle_like_back_to_match(callback: CallbackQuery):
-#     """Performs the 'like back' action from the admirer view, creating a match."""
-#     admirer_id = int(callback.data.split('_')[1])
-#     user_id = callback.from_user.id
-    
-#     match_id = await db.add_like(user_id, admirer_id)
-    
-#     if match_id:
-#         # User who matched back gets the match notification
-#         await callback.message.edit_caption("🎉 **IT'S A MATCH!** 🎉\n\nThey're now in your Mutual Matches list. Go chat!")
-#         # Notify the original admirer that they got a match
-#         original_admirer = await db.get_user(admirer_id)
-#         user = await db.get_user(user_id)
-#         try:
-#              await callback.bot.send_message(
-#                 admirer_id,
-#                 f"🎉 NEW MATCH! 🎉\n\n{user['name']} liked you back! Check your Mutual Matches. 💖"
-#             )
-#         except Exception as e:
-#             logger.error(f"Could not notify matched user: {e}")
-#     else:
-#         # Should not happen in this flow
-#         await callback.answer("Error: Match could not be created 💀", show_alert=True)
-        
-#     await callback.answer()
-
-# --- 4. Back Navigation Handlers ---
 
 @router.callback_query(F.data == "crush_dashboard")
 async def back_to_crush_dashboard_callback(callback: CallbackQuery, state: FSMContext):

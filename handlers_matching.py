@@ -163,7 +163,17 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
         await state.update_data(candidates=candidates, current_index=0)
 
     if current_index >= len(candidates):
-        current_index = 0
+        # No more candidates left
+        await message.answer(
+            "😅 Looks like you’ve seen everyone for now!\n\n"
+            "✨ You can adjust your filters, invite more friends to grow the pool, "
+            "or head back to the main menu.",
+            reply_markup=get_out_of_matches_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
+        await state.set_state(None)
+        return
+
 
     candidate = candidates[current_index]
 
@@ -181,29 +191,14 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
     match_row = await db.get_match_between(viewer_id, candidate["id"])
     is_revealed = True
 
-    if is_revealed:
-        profile_text = await format_profile_text(
-            candidate,
-            vibe_score=vibe_score,
-            show_full=False,
-            viewer_interests=viewer_interests,
-            candidate_interests=candidate_interests
-        )
-    else:
-        # Pick up to 2 random interests to tease
-        tease_interests = random.sample(candidate_interests, min(2, len(candidate_interests))) if candidate_interests else []
-        if tease_interests:
-            interests_hint = "✨ They’re into " + " & ".join(tease_interests)
-        else:
-            interests_hint = "✨ Their interests are waiting to be revealed..."
-
-        profile_text = (
-            "🔒 <b>Identity Hidden</b>\n"
-            f"🎓 {candidate.get('year', 'Year ?')}, {candidate.get('campus', 'Campus')}\n"
-            f"{vibe_label(vibe_score)}\n"
-            f"{interests_hint}\n"
-            "🙈 Photo blurred until reveal"
-        )
+    profile_text = await format_profile_text(
+        candidate,
+        vibe_score=vibe_score,
+        show_full=False,
+        viewer_interests=viewer_interests,
+        candidate_interests=candidate_interests,
+        revealed=is_revealed  # 👈 this one flag handles both cases
+    )
 
     # --- Breaker line ---
     breakers = [
@@ -242,7 +237,7 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
         await message.answer(profile_text, reply_markup=get_swiping_reply_keyboard(), parse_mode=ParseMode.HTML)
         
     
-    await state.update_data(current_index=current_index + 1)
+    await state.update_data(current_index=current_index)
 
 
 
@@ -267,6 +262,8 @@ async def handle_like_message(message: Message, state: FSMContext):
         parse_mode=ParseMode.HTML
     )
     from handlers_likes import celebrate_match, notify_like
+    print(f"add_like result: {result}")
+
     if result["status"] == "match":
         await celebrate_match(message.bot, liker_id, liked_id, result["match_id"], context="swipe")
     elif result["status"] == "liked":

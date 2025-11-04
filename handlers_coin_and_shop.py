@@ -130,6 +130,7 @@ async def back_to_shop_callback(callback: CallbackQuery):
     await callback.message.answer("🪙 Coins & Shop", reply_markup=get_shop_keyboard())
     await callback.answer()
 
+
 @router.callback_query(F.data.startswith("buy_"))
 async def handle_purchase(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -150,6 +151,7 @@ async def handle_purchase(callback: CallbackQuery):
             await callback.answer("Already unlocked.", show_alert=True)
             return
 
+    # Spend coins first
     success = await db.spend_coins(user_id, price, "purchase", f"Purchased {item_names[choice]}")
     if not success:
         await callback.answer("Not enough coins 💀", show_alert=True)
@@ -158,9 +160,8 @@ async def handle_purchase(callback: CallbackQuery):
     # Apply benefit
     benefit_text = ""
     if choice == "buy_likes":
-        # You can design this as: add to a daily bonus counter, or a consumable token.
-        # Here: add a +1 bonus for today (your enforcement layer should read it).
-        await db.update_user(user_id, {"$inc": {"daily_likes_bonus": 1}})
+        # Increment daily_likes_bonus safely
+        await db.increment_field(user_id, "daily_likes_bonus", 1)
         benefit_text = "You gained +1 extra daily like for today!"
     elif choice == "buy_vibe":
         await db.update_user(user_id, {"premium_vibe_unlocked": True})

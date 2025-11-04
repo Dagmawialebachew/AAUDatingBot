@@ -64,10 +64,13 @@ def calculate_vibe_compatibility(vibe1: dict, vibe2: dict) -> int:
     return int(raw)
 
 
-def vibe_label(score: int) -> str:
+def vibe_label(score: int | None) -> str:
     """
     Turn a numeric vibe score into a cinematic label.
+    Handles None scores safely.
     """
+    if score is None:
+        return "❔ No Vibe Score Yet"
     if score >= 80:
         return f"🔥 Strong Match ({score}%)"
     elif score >= 50:
@@ -88,49 +91,68 @@ def recency_score(last_active: Optional[str]) -> float:
         
         
 from aiogram.utils.text_decorations import html_decoration as hd
+
 async def format_profile_text(
     user: dict,
     vibe_score: int = None,
     show_full: bool = False,
-    viewer_interests: List[str] = None,
-    candidate_interests: List[str] = None
+    viewer_interests: list = None,
+    candidate_interests: list = None,
+    revealed: bool = False,  # 👈 supports both modes
 ) -> str:
     """
-    Build a cinematic profile text with vibe score and interests.
-    If viewer_interests is provided, highlight shared interests.
+    Build a cinematic profile text (revealed or anonymous) with vibe score & interests.
+    Can be reused for matches, likes, admirers, etc.
     """
-    name = hd.quote(user.get("name", "Unknown"))
+    # Safety and cleanup
     campus = hd.quote(user.get("campus", ""))
     department = hd.quote(user.get("department", ""))
     year = hd.quote(str(user.get("year", "")))
     bio = hd.quote(user.get("bio", ""))
 
-    text = f"👤 {name}\n"
-    text += f"📍 {campus} | {department}\n"
-    text += f"🎓 {year}\n\n"
-    text += f"💭 {bio}\n"
+    # ---------- REVEALED ----------
+    if revealed:
+        name = hd.quote(user.get("name", "Unknown"))
+        text = f"👤 {name}\n"
+        text += f"📍 {campus} | {department}\n"
+        text += f"🎓 {year}\n\n"
+        text += f"💭 {bio}\n"
 
-    if show_full and user.get("username"):
-        username = hd.quote(user["username"])
-        text += f"\n📱 @{username}"
+        if show_full and user.get("username"):
+            username = hd.quote(user["username"])
+            text += f"\n📱 @{username}"
 
-    if vibe_score is not None:
-        text += f"\n\n{vibe_label(vibe_score)}"
+        if vibe_score is not None:
+            text += f"\n\n{vibe_label(vibe_score)}"
 
-    # --- Interests Section ---
+    # ---------- ANONYMOUS ----------
+    else:
+        tease_interests = random.sample(candidate_interests or [], min(2, len(candidate_interests or [])))
+        if tease_interests:
+            interests_hint = "✨ They might be into " + " & ".join(tease_interests)
+        else:
+            interests_hint = "✨ Their interests are waiting to be revealed..."
+
+        text = (
+            "🔒 <b>Identity Hidden</b>\n"
+            f"🎓 {year}, {campus}\n"
+            f"{vibe_label(vibe_score)}\n\n"
+            f"{interests_hint}\n"
+            "🙈 <i>Photo blurred until reveal...</i>"
+        )
+
+    # ---------- INTERESTS ----------
     if candidate_interests is None:
         candidate_interests = []
 
     if viewer_interests:
         shared = list(set(viewer_interests) & set(candidate_interests))
         if shared:
-            # Cinematic shared interests highlight
             text += "\n\n🤝 <b>Shared Interests</b>\n"
-            text += " • " + "\n • ".join(shared[:3])  # show up to 3
+            text += " • " + "\n • ".join(shared[:3])
             if len(shared) > 3:
                 text += f"\n • +{len(shared)-3} more..."
         elif candidate_interests:
-            # No overlap, but show their top interests
             text += "\n\n✨ <b>Their Interests</b>\n"
             text += " • " + "\n • ".join(candidate_interests[:3])
     else:
