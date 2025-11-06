@@ -525,8 +525,8 @@ class Database:
                     match_id = cursor.lastrowid
 
                 # Reward both users
-                await self.add_coins(liker_id, 30, 'match', 'You got a new match!')
-                await self.add_coins(liked_id, 30, 'match', 'You got a new match!')
+                await self.add_coins(liker_id, 10, 'match', 'You got a new match!')
+                await self.add_coins(liked_id, 10, 'match', 'You got a new match!')
 
                 await self._db.commit()
                 await self.update_leaderboard_cache()

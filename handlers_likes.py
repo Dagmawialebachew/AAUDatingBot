@@ -2,7 +2,7 @@ import json
 import logging
 import random
 from typing import Any, Optional
-
+from bot_config import MATCHBACK_GIFS
 from aiogram import Router, F
 from aiogram.types import (
     InlineKeyboardMarkup,
@@ -126,7 +126,10 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
         is_revealed = False
         logger.info("No active match found between viewer and target.")
 
-    logger.info(f"is_revealed={is_revealed}")
+    # --- Force reveal if user is in 'likes' list ---
+    if list_type == "likes":
+        is_revealed = True
+        logger.info("Auto-revealed profile because viewer is viewing their 'likes' list.")
 
     # --- Build profile text ---
     profile_text = await format_profile_text(
@@ -251,9 +254,7 @@ async def get_profile_text_and_kb(
         candidate,
         vibe_score=vibe_score,
         show_full=False,
-        viewer_interests=viewer_interests,
-        candidate_interests=candidate_interests,
-        revealed=is_revealed
+        revealed=True
     )
 
     # Action buttons
@@ -275,55 +276,73 @@ async def get_profile_text_and_kb(
     return profile_text, actions_kb
 
 
+
+
 async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, context: str = "swipe"):
     """
-    Notify both users of a new match:
+    Cinematic match celebration:
     - Reward coins
-    - Send profile card (with photo if available and revealed)
-    - Show vibe score
-    - Provide inline buttons (chat, view profile)
+    - Kick off with MATCHBACK_GIF animation
+    - Dramatic breaker line + profile card
+    - Vibe score + coin reward
+    - Inline buttons for chat / profile
     """
 
-    # --- Reward coins for the first user ---
+    # --- Reward coins for initiator ---
     try:
-        await db.add_coins(user_id, 10, "match", "You got a match reward!")
         logger.info(f"Added 10 coins to {user_id} for match reward")
     except Exception as e:
         logger.error(f"Failed to add match reward coins to {user_id}: {e}")
 
-    # --- Helper function to send profile ---
     async def send_profile(to_user: int, profile_owner: int):
-    # Load users
         viewer = await db.get_user(to_user)
         candidate = await db.get_user(profile_owner)
 
-        # Fetch active match to check reveal state
-        match_row = await db.get_active_match_between(to_user, profile_owner)
-        is_revealed = match_row and match_row.get("revealed")
-        logger.info(f"[send_profile] Active match between {to_user} & {profile_owner}: {match_row}, is_revealed={is_revealed}")
+        # Breaker line rotation
+        breakers = [
+            "─────────────── ✨ ───────────────",
+            "🎉 Sparks ignite…",
+            "💘 Two vibes collide!",
+            "⚡ A match made on campus",
+            "🌟 Connection unlocked!"
+        ]
+        breaker_line = random.choice(breakers)
 
-        # Get profile text + keyboard
+        # Profile text + keyboard
         profile_text, actions_kb = await get_profile_text_and_kb(
             to_user, profile_owner, list_type="matches", match_id=match_id, page=0
         )
-        profile_text = profile_text or f"💘 You have a new match with {candidate.get('name', 'someone')}!"
+        if not profile_text:
+            profile_text = f"💘 You matched with {candidate.get('name', 'someone')}!"
+
         actions_kb = actions_kb or InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💬 Open Chat", callback_data=f"chat_{match_id}")],
             [InlineKeyboardButton(text="👀 View Profile", callback_data=f"backlike_viewprofile_{profile_owner}_matches_0")]
         ])
 
-        # --- Vibe score ---
+        # Vibe score
         viewer_vibe = _safe_json_load(viewer.get("vibe_score") if viewer else "{}")
         candidate_vibe = _safe_json_load(candidate.get("vibe_score") if candidate else "{}")
         vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
         vibe_label_text = vibe_label(vibe_score)
 
-        # Add vibe & coins info to caption
-        caption = f"🎉 New Match!\n\n{profile_text}\n\n✨ {vibe_label_text}\n💰 +10 coins added!"
+        # Caption
+        caption = (
+            f"{breaker_line}\n\n"
+            f"🎉 <b>It’s a Match!</b>\n\n"
+            f"{profile_text}\n\n"
+            f"✨ {vibe_label_text}\n"
+            f"💰 +10 coins added!"
+        )
 
-        # Send photo only if revealed
+        # --- Cinematic delivery ---
         try:
-            if is_revealed and candidate.get("photo_file_id"):
+            # Kick off with MATCHBACK_GIF
+            gif = random.choice(MATCHBACK_GIFS)
+            await bot.send_animation(to_user, gif, caption="🎉 A new match just dropped!")
+
+            # Then send profile card
+            if candidate.get("photo_file_id"):
                 await bot.send_photo(
                     to_user,
                     candidate["photo_file_id"],
@@ -339,14 +358,14 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
                     parse_mode=ParseMode.HTML
                 )
         except Exception as e:
-            logger.error(f"Error sending profile to {to_user}: {e}")
+            logger.error(f"Error sending cinematic match profile to {to_user}: {e}")
 
-    # --- Send to both users ---
-    logger.info(f"Celebrating match {match_id} between {user_id} and {other_id}")
+    # --- Deliver to both users ---
+    logger.info(f"Cinematic celebration for match {match_id} between {user_id} and {other_id}")
     await send_profile(user_id, other_id)
     await send_profile(other_id, user_id)
-
-
+    
+                           
 @router.callback_query(F.data.startswith("likeback_"))
 async def handle_like_back_to_match(callback: CallbackQuery, state: FSMContext):
     """

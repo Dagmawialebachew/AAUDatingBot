@@ -987,13 +987,6 @@ async def cancel_icebreaker(callback: CallbackQuery, state: FSMContext):
 # ---------- Reveal identity ----------
 @router.callback_query(F.data.startswith("reveal_"))
 async def reveal_identity(callback: CallbackQuery, state: FSMContext):
-    """
-    Spend coins to reveal match identity with a dramatic full profile card:
-    - Refund safeguard if anything fails after spending
-    - Photo + full details (name, campus, department, year, bio)
-    - Vibe match percentage
-    - Rotating breaker line for emotional impact
-    """
     try:
         match_id = int(callback.data.split("reveal_")[1])
     except Exception:
@@ -1002,55 +995,34 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
     COST = 30
-
-    # 1) Balance check
-    user = await db.get_user(user_id)
-    if user.get("coins", 0) < COST:
-        await callback.answer(f"Not enough coins! Need {COST} coins 💀", show_alert=True)
-        return
-
-    # 2) Spend coins first
-    if not await db.spend_coins(user_id, COST, "reveal_identity", "Revealed identity in chat"):
-        await callback.answer("Something went wrong with coin transaction 💀", show_alert=True)
-        return
+    refund_needed = False  # <--- control flag
 
     try:
-        # 3) Persist reveal state
-        if not await db.reveal_match_identity(match_id, user_id):
-            # First refund path
-            await db.add_coins(user_id, COST, "purchase", "Reveal failed – coins refunded")
+        # --- 1) Balance check ---
+        user = await db.get_user(user_id)
+        if user.get("coins", 0) < COST:
+            await callback.answer(f"Not enough coins! Need {COST} coins 💀", show_alert=True)
             return
 
-        # Keep active chat state in sync
-        if user_id in active_chats:
-            active_chats[user_id]["revealed"] = True
+        # --- 2) Spend coins ---
+        if not await db.spend_coins(user_id, COST, "reveal_identity", "Revealed identity in chat"):
+            await callback.answer("Coin transaction failed 💀", show_alert=True)
+            return
 
-        # 4) Fetch match data for the revealed card
+        # --- 3) Mark reveal in DB ---
+        if not await db.reveal_match_identity(match_id, user_id):
+            refund_needed = True
+            raise ValueError("Reveal DB update failed")
+
+        # --- 4) Fetch match data ---
         match_data = await get_match_data_for_chat(user_id, match_id)
         if not match_data:
-    # Log the failure reason
-            logger.warning(
-                "Reveal failed for user_id=%s: match_data is missing. Refund issued.",
-                user_id,
-                extra={
-                    "callback_data": callback.data,
-                    "cost": COST
-                }
-            )
-
-            # Refund coins
-            await db.add_coins(user_id, COST, "purchase", "Reveal failed – coins refunded")
-
-            # Notify the user
-            await callback.answer("Reveal failed 💀 (coins refunded)", show_alert=True)
-            return
-
+            refund_needed = True
+            raise ValueError("Match data missing after reveal")
 
         other_user = match_data["user"]
-        data = await state.get_data()
-        last_page = data.get("last_crush_page", 0)
 
-        # 5) Build the dramatic breaker line
+        # --- 5) Build UI (unchanged) ---
         breakers = [
             "─────────────── ✨ ───────────────",
             "⚡ The mask comes off…",
@@ -1060,7 +1032,6 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
         ]
         breaker_line = random.choice(breakers)
 
-        # 6) Compute vibe match safely
         viewer_vibe = json.loads(user.get("vibe_score", "{}") or "{}")
         candidate_vibe = json.loads(other_user.get("vibe_score", "{}") or "{}")
         vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
@@ -1068,55 +1039,40 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
         profile_text = await format_profile_text(other_user, show_full=True)
         profile_text += f"\n✨ Vibe Match: {vibe_score}%"
 
-        # Add breaker + header
         reveal_caption = (
             f"{breaker_line}\n\n"
             "🎭 <b>Identity Revealed!</b>\n\n"
             f"{profile_text}"
         )
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💬 Continue Chat", callback_data=f"chat_{match_id}_{last_page}")],
+            [InlineKeyboardButton(text="💬 Continue Chat", callback_data=f"chat_{match_id}_0")],
             [InlineKeyboardButton(text="🔙 Back to Matches", callback_data="back_from_chat")],
         ])
 
-        # 8) Deliver the reveal
+        # --- 6) Send message ---
         try:
-            if other_user.get("photo_file_id"):
-                try:
-                    await callback.message.delete()
-                except Exception:
-                    pass
+            await callback.message.delete()
+        except Exception:
+            pass
 
-                await callback.message.answer_photo(
-                    photo=other_user["photo_file_id"],
-                    caption=reveal_caption,
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                try:
-                    await callback.message.edit_text(
-                        reveal_caption,
-                        reply_markup=keyboard,
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception:
-                    await callback.message.answer(
-                        reveal_caption,
-                        reply_markup=keyboard,
-                        parse_mode=ParseMode.HTML
-                    )
-        except Exception as e:
-            logger.error(f"Error showing reveal profile: {e}")
+        if other_user.get("photo_file_id"):
+            await callback.message.answer_photo(
+                photo=other_user["photo_file_id"],
+                caption=reveal_caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
             await callback.message.answer(
                 reveal_caption,
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML
             )
 
-        # 9) Notify the other user
+        # --- 7) Notify the other user ---
         try:
-            sender_name = h(user.get("name", ""))
+            sender_name = h(user.get("name", "Someone"))
             await callback.bot.send_message(
                 other_user["id"],
                 f"🎭 <b>{sender_name}</b> just revealed their identity!\n\n"
@@ -1124,15 +1080,18 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
-            logger.error(f"Could not notify other user: {e}")
+            logger.warning(f"Failed to notify the other user: {e}")
 
         await callback.answer("Identity revealed! ✅")
 
     except Exception as e:
-        # 10) Global safeguard: refund on unexpected crash
         logger.exception(f"Reveal identity crashed: {e}")
+        refund_needed = True
+
+    # --- 8) Final guaranteed refund path ---
+    if refund_needed:
         try:
             await db.add_coins(user_id, COST, "purchase", "Reveal failed – coins refunded")
+            await callback.answer("Reveal failed 💀 (coins refunded)", show_alert=True)
         except Exception as re:
             logger.error(f"Failed to refund coins to {user_id}: {re}")
-        await callback.answer("Reveal failed 💀 (coins refunded)", show_alert=True)

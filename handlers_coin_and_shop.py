@@ -51,7 +51,7 @@ async def coins_shop(message: Message):
         "• Daily Login: 10 coins\n"
         "• Refer a Friend: 50 coins\n"
         "• Send Confession: 5 coins\n"
-        "• Get a Match: 30 coins\n\n"
+        "• Get a Match: 10 coins\n\n"
         "🛍️ Spend Coins:\n"
         "• Extra Daily Likes: 20 coins\n"
         "• Premium Vibe Test: 50 coins\n\n"

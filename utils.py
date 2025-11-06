@@ -109,6 +109,7 @@ async def format_profile_text(
     department = hd.quote(user.get("department", ""))
     year = hd.quote(str(user.get("year", "")))
     bio = hd.quote(user.get("bio", ""))
+    
 
     # ---------- REVEALED ----------
     if revealed:
