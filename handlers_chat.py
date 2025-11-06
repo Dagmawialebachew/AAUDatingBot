@@ -101,85 +101,6 @@ def build_header_keyboard(match_id: int, revealed: bool) -> InlineKeyboardMarkup
 
 
 
-@router.callback_query(F.data.startswith("viewprofile_from_chat_"))
-async def view_profile_from_chat(callback: CallbackQuery):
-    raw = callback.data
-    try:
-        match_id = int(raw.split("_")[-1])
-    except Exception:
-        await callback.answer("Invalid profile reference 💀", show_alert=True)
-        return
-
-    viewer_id = callback.from_user.id
-
-    # Fetch match data
-    match_data = await get_match_data_for_chat(viewer_id, match_id)
-    if not match_data:
-        await callback.answer("Profile not found 💀", show_alert=True)
-        return
-
-    other_user = match_data["user"]
-    revealed = match_data["revealed"]
-
-    # Fetch interests
-    candidate_interests = await db.get_user_interests(other_user["id"])
-    viewer_interests = await db.get_user_interests(viewer_id)
-
-    # Build profile
-    profile_text = await format_profile_text(
-        other_user,
-        show_full=True,
-        revealed=revealed,
-        candidate_interests=candidate_interests,
-        viewer_interests=viewer_interests
-    )
-
-    # Buttons: Unmatch + Back to Chat
-    actions_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="❌ Unmatch",
-                callback_data=f"unmatch_confirm_{match_id}"
-            ),
-            InlineKeyboardButton(
-                text="🔙 Back to Chat",
-                callback_data=f"chat_{match_id}"
-            )
-        ]
-    ])
-
-    # Delete previous message before sending new profile
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-    # Send profile
-    try:
-        if revealed and other_user.get("photo_file_id"):
-            await callback.message.answer_photo(
-                photo=other_user["photo_file_id"],
-                caption=profile_text,
-                reply_markup=actions_kb,
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            await callback.message.answer(
-                profile_text,
-                reply_markup=actions_kb,
-                parse_mode=ParseMode.HTML
-            )
-    except Exception as e:
-        logger.error("Error sending full profile: %s", e)
-        await callback.message.answer(
-            profile_text,
-            reply_markup=actions_kb,
-            parse_mode=ParseMode.HTML
-        )
-
-    await callback.answer()
-
-
 @router.callback_query(F.data.startswith("unmatch_confirm_"))
 async def confirm_unmatch(callback: CallbackQuery):
     try:
@@ -397,20 +318,19 @@ async def ensure_pinned_card_for_user(
         return None
 
 
+
 @router.callback_query(F.data.startswith("chat_"))
 async def start_chat(callback: CallbackQuery, state: FSMContext):
-    from handlers_likes import _safe_json_load
-
     """
     Enter chat with a specific match.
+    - Initiator (first liker) gets cinematic teaser only.
+    - Second liker (like-back) gets identity-hidden profile text until reveal.
     - Revealed users get full profile photo and header.
-    - Unrevealed users get a cinematic teaser (partial info) and last messages.
     """
+
     parts = callback.data.split("_")
-    print('here are parts', parts)
     try:
         match_id = int(parts[1])
-        print('here is teh match id', match_id)
     except Exception:
         await callback.answer("Invalid chat reference 💀")
         return
@@ -428,6 +348,10 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
 
     other_user = match_data["user"]
     revealed = match_data["revealed"]
+    initiator_id = match_data.get("initiator_id")
+    print('here is intiator_id', initiator_id)
+    print('herei is user_id', user_id)
+    
 
     # Save active chat session
     active_chats[user_id] = {
@@ -447,6 +371,15 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
     history_text = "\n".join(bubbles) if bubbles else "✨ <i>No messages yet — break the ice!</i> 💬"
 
     # --- Build header/caption ---
+    viewer = await db.get_user(user_id)
+    viewer_interests = await db.get_user_interests(user_id)
+    candidate_interests = await db.get_user_interests(other_user["id"])
+    from handlers_likes import _safe_json_load
+
+    viewer_vibe = _safe_json_load(viewer.get("vibe_score", "{}") if viewer else "{}")
+    candidate_vibe = _safe_json_load(other_user.get("vibe_score", "{}"))
+    vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
+
     if revealed:
         header = caption_header(other_user, revealed=True)
         caption = (
@@ -457,36 +390,37 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
             f"💡 <i>Say hi or drop a voice note — your move.</i>"
         )
     else:
-        # --- Cinematic teaser for unrevealed match ---
-        teaser_interests = await db.get_user_interests(other_user["id"])
-        tease_sample = random.sample(teaser_interests, min(2, len(teaser_interests))) if teaser_interests else []
-        interests_hint = f"💡 Hint: Into " + " & ".join(tease_sample) if tease_sample else ""
+        if initiator_id == user_id:
+            # Initiator → cinematic teaser only
+            header = caption_header(other_user, revealed=True)
+            revealed = True
+            caption = (
+                f"{header}\n\n"
+                f"📜 <u>Last messages</u>\n"
+                f"{history_text}\n\n"
+                f"───────────────\n\n"
+                f"💡 <i>Say hi or drop a voice note — your move.</i>"
+            )
+        else:
+            # Second liker → identity-hidden profile text
+            tease_interests = random.sample(candidate_interests or [], min(2, len(candidate_interests or [])))
+            if tease_interests:
+                interests_hint = "✨ They might be into " + " & ".join(tease_interests)
+            else:
+                interests_hint = "✨ Their interests are waiting to be revealed..."
 
-        partial_name = other_user.get("name", "Anon")[:4] + "…"
-        campus = hd.quote(other_user.get("campus", ""))
-        department = hd.quote(other_user.get("department", ""))
-        year = hd.quote(str(other_user.get("year", "")))
-        bio = hd.quote(other_user.get("bio", ""))
 
-        # Safe vibe score
-        viewer = await db.get_user(user_id)
-        viewer_vibe = _safe_json_load(viewer.get("vibe_score", "{}") if viewer else "{}")
-        candidate_vibe = _safe_json_load(other_user.get("vibe_score", "{}"))
-        vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
-
-        header = f"🎭 Anonymous — {partial_name}"
-        caption = (
-            f"{header}\n"
-            "🔒 <b>Identity Hidden</b>\n"
-            f"🎓 {year}, {campus}\n"
-            f"{vibe_label(vibe_score)}\n\n"
-            f"{interests_hint}\n\n"
-            "🙈 <i>Photo blurred until reveal...</i>\n\n"
-            f"📜 <u>Last messages</u>\n"
-            f"{history_text}\n\n"
-            f"───────────────\n\n"
-            f"💡 <i>Send a message to break the ice!</i>"
-        )
+            partial_name = other_user.get("name", "Anon")[:4] + "…"
+            header = f"💌 Chat with 🎭 Anonymous — {partial_name}"
+            caption = (
+                f"{header}\n\n" 
+                "🔒 <b>Identity Hidden</b>\n\n"
+                f"{interests_hint}\n"
+                "🙈 <i>Photo blurred until reveal...</i>\n\n\n"
+                f"📜 <u>Last messages</u>\n{history_text}\n\n"
+                "───────────────\n\n"
+                "💡 <i>Send a message to break the ice!</i>"
+            )
 
     # --- Build keyboard ---
     keyboard = build_header_keyboard(match_id, revealed)
@@ -521,7 +455,7 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
         pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
         await state.update_data(pinned_card_id=sent.message_id)
 
-    # --- Remove main menu keyboard and enter chat mode ---
+    # --- Enter chat mode ---
     await callback.message.answer(
         "💬 You’re now in chat mode. Type or send a voice note!",
         reply_markup=chat_actions_kb
@@ -1035,9 +969,15 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
         viewer_vibe = json.loads(user.get("vibe_score", "{}") or "{}")
         candidate_vibe = json.loads(other_user.get("vibe_score", "{}") or "{}")
         vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
-
-        profile_text = await format_profile_text(other_user, show_full=True)
-        profile_text += f"\n✨ Vibe Match: {vibe_score}%"
+        viewer_id = callback.from_user.id
+        profile_text = await format_profile_text(
+        other_user,
+        vibe_score=vibe_score,
+        show_full=False,
+        candidate_interests = await db.get_user_interests(other_user["id"]),
+        viewer_interests = await db.get_user_interests(viewer_id),
+        revealed=True
+    )
 
         reveal_caption = (
             f"{breaker_line}\n\n"

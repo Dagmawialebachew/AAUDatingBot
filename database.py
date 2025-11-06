@@ -88,12 +88,15 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user1_id INTEGER,
                     user2_id INTEGER,
+                    initiator_id INTEGER,              -- NEW: who liked first
                     revealed BOOLEAN DEFAULT FALSE,
                     chat_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(user1_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(user2_id) REFERENCES users(id) ON DELETE CASCADE
-                )
+                    FOREIGN KEY(user2_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(initiator_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
             """)
 
             # --- Chats Table ---
@@ -515,22 +518,35 @@ class Database:
                 reverse_like = await cursor.fetchone()
 
             if reverse_like:
-                # Create a match
+    # Find initiator (earliest like between the two)
+                async with self._db.execute(
+                    """
+                    SELECT liker_id
+                    FROM likes
+                    WHERE (liker_id = ? AND liked_id = ?)
+                    OR (liker_id = ? AND liked_id = ?)
+                    ORDER BY id ASC
+                    LIMIT 1
+                    """,
+                    (liker_id, liked_id, liked_id, liker_id)
+                ) as cur:
+                    row = await cur.fetchone()
+                    initiator_id = row["liker_id"] if row else liker_id
+
                 user1_id = min(liker_id, liked_id)
                 user2_id = max(liker_id, liked_id)
+
                 async with self._db.execute(
-                    "INSERT INTO matches (user1_id, user2_id) VALUES (?, ?)",
-                    (user1_id, user2_id)
+                    "INSERT INTO matches (user1_id, user2_id, initiator_id) VALUES (?, ?, ?)",
+                    (user1_id, user2_id, initiator_id)
                 ) as cursor:
                     match_id = cursor.lastrowid
 
-                # Reward both users
-                await self.add_coins(liker_id, 10, 'match', 'You got a new match!')
-                await self.add_coins(liked_id, 10, 'match', 'You got a new match!')
-
+                # Don’t reward coins here — let celebrate_match handle it
                 await self._db.commit()
                 await self.update_leaderboard_cache()
                 return {"status": "match", "match_id": match_id}
+
 
             # If no reverse like, just a one‑sided like
             await self.update_leaderboard_cache()
@@ -777,10 +793,15 @@ class Database:
             logger.error(f"Error getting my likes for {user_id}: {e}")
             return []
 
+
+
     async def get_user_matches(self, user_id: int) -> List[Dict]:
         try:
             sql = """
-                SELECT DISTINCT m.id as match_id, m.revealed,
+                SELECT DISTINCT 
+                    m.id as match_id,
+                    m.revealed,
+                    m.initiator_id,
                     CASE WHEN m.user1_id = ? THEN m.user2_id ELSE m.user1_id END as other_user_id
                 FROM matches m
                 WHERE (m.user1_id = ? OR m.user2_id = ?)
@@ -792,22 +813,23 @@ class Database:
             result = []
             seen = set()
             for match_row in matches_data:
-                other_id = match_row['other_user_id']
+                other_id = match_row["other_user_id"]
                 if other_id in seen:
                     continue
                 seen.add(other_id)
+
                 other_user = await self.get_user(other_id)
                 if other_user:
                     result.append({
-                        'match_id': match_row['match_id'],
-                        'user': other_user,
-                        'revealed': bool(match_row['revealed'])
+                        "match_id": match_row["match_id"],
+                        "user": other_user,
+                        "revealed": bool(match_row["revealed"]),
+                        "initiator_id": match_row["initiator_id"],  # <-- include initiator
                     })
             return result
         except Exception as e:
             logger.error(f"Error getting user matches for {user_id}: {e}")
             return []
-
 
     async def get_match_between(self, user1_id: int, user2_id: int) -> Optional[Dict]:
         """
@@ -838,7 +860,7 @@ class Database:
 
     async def get_active_match_between(self, user1_id: int, user2_id: int) -> Optional[Dict]:
         sql = """
-            SELECT id as match_id, user1_id, user2_id, chat_active, revealed
+            SELECT id as match_id, user1_id, user2_id, initiator_id, chat_active, revealed
             FROM matches
             WHERE chat_active = 1
             AND ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
@@ -846,15 +868,18 @@ class Database:
         """
         async with self._db.execute(sql, (user1_id, user2_id, user2_id, user1_id)) as cursor:
             row = await cursor.fetchone()
+
         if row:
             return {
                 "match_id": row["match_id"],
-                "user1_id": row["user1_id"],
+                "user1_id": row["user1_id"],       # fixed typo
                 "user2_id": row["user2_id"],
+                "initiator_id": row["initiator_id"],  # now included
                 "chat_active": bool(row["chat_active"]),
                 "revealed": bool(row["revealed"]),
             }
         return None
+
 
 
     async def save_chat_message(self, match_id: int, sender_id: int, message: str) -> bool:
