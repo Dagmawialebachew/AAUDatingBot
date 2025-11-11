@@ -245,12 +245,14 @@ async def show_crush_dashboard(message: Message):
     """
     Main entrypoint to view matches, likes, and admirers.
     """
+    print(">>> My Crushes handler fired")
+
     await message.answer(
-        "💖 *Your Crush Zone*\n\n"
-        "Check who you’ve matched with, who liked you, and the ones you liked. 👀🔥",
-        reply_markup=get_crush_dashboard_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    "💖 *Your Crush Zone*\n\n"
+    "Check who you’ve matched with, who liked you, and the ones you liked. 👀🔥",
+    reply_markup=get_crush_dashboard_keyboard(),
+    parse_mode=ParseMode.MARKDOWN  # ✅ correct
+)
 
 
 # --- 1. Message Handlers to Start List View (No changes, they call the corrected _render) ---

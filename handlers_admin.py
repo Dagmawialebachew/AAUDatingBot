@@ -634,8 +634,3 @@ async def admin_ignore_request(callback: CallbackQuery):
         pass
 
 
-# --- Fallback (quiet for admins) ---
-@router.message()
-async def fallback_admin(message: Message):
-    if is_admin(message.from_user.id):
-        return

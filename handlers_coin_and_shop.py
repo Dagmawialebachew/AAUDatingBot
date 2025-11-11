@@ -41,6 +41,8 @@ def get_history_back_keyboard() -> ReplyKeyboardMarkup:
 
 @router.message(F.text == "🪙 Coins & Shop")
 async def coins_shop(message: Message):
+    print('hey dad as')
+
     user = await db.get_user(message.from_user.id)
     # Defensive: ensure coins exist
     coins = user.get("coins", 0) if user else 0

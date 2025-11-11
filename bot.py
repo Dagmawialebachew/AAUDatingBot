@@ -85,6 +85,7 @@ admin_commands = [
 ]
 
 
+
 async def setup_bot_commands(bot: Bot):
     # Default commands for all users
     await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())

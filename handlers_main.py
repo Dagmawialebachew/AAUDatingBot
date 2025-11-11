@@ -11,7 +11,6 @@ router = Router()
 
 # --- Keyboards ---
 
-
 @router.message(F.text == "✏️ Profile")
 async def edit_profile_menu_from_main(message: Message, state: FSMContext):
     """
@@ -20,19 +19,6 @@ async def edit_profile_menu_from_main(message: Message, state: FSMContext):
     """
     await show_edit_profile_menu_from_main(message, state)
 
-# def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-#     return ReplyKeyboardMarkup(
-#         keyboard=[
-#             [KeyboardButton(text="❤️ Find Matches"), KeyboardButton(text="💖 My Crushes")],
-#             [KeyboardButton(text="✏️ Edit Profile"), KeyboardButton(text="💌 Crush Confession")],
-#             [KeyboardButton(text="🏆 Leaderboard"),KeyboardButton(text="🪙 Coins & Shop") ],
-#             [KeyboardButton(text="👥 Invite Friends"), KeyboardButton(text="🎮 Mini Games")],
-#             [KeyboardButton(text="🤝 View Shared/ 📊 Trending Interests")]
-
-            
-#         ],
-#         resize_keyboard=True
-#     )
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -80,40 +66,6 @@ async def back_to_main_menu(message: Message):
         reply_markup=get_main_menu_keyboard()
     )
     
-# from html import escape as h  # escape user names safely for HTML
-
-# async def _get_leaderboard_text_and_keyboard() -> Tuple[str, InlineKeyboardMarkup]:
-#     sorted_users = await db.get_weekly_leaderboard()
-
-#     if not sorted_users:
-#         text = (
-#             "🏆 Weekly Leaderboard 🏆\n\n"
-#             "No one on the board yet! 👀\n\n"
-#             "Be the first to get likes this week 🔥"
-#         )
-#     else:
-#         text = "🏆 Top 10 Most Liked This Week 🏆\n\n"
-
-#         for idx, row in enumerate(sorted_users, 1):
-#             uid = row["id"]
-#             count = row["likes_received"]
-#             name = h(row["name"]) if row["name"] else "Unknown"
-#             medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"{idx}."
-#             text += f"{medal} <b>{name}</b> — {count} ❤️\n"
-
-
-#         text += "\n\nKeep swiping to make it to the top! 💯"
-
-#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-#         [InlineKeyboardButton(text="🔄 Refresh", callback_data="leaderboard")],
-#         [InlineKeyboardButton(text="🔙 Main Menu", callback_data="main_menu")]
-#     ])
-
-#     return text, keyboard
-
-# --- Handlers ---
-
-
 
 Router()
 from aiogram.enums import ParseMode
