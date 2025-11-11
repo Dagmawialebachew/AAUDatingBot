@@ -1288,6 +1288,74 @@ class Database:
         except Exception as e:
             logger.error(f"Error fetching weekly leaderboard: {e}")
             return []
+    
+    
+    
+    # --- Admin Helpers ---
+
+    async def get_users_page(self, offset: int = 0, limit: int = 5) -> list[dict]:
+        """
+        Return a paginated list of users ordered by created_at DESC.
+        Used in admin panel browsing.
+        """
+        try:
+            sql = "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            async with self._db.execute(sql, (limit, offset)) as cur:
+                rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            logger.error(f"Error fetching users page: {e}")
+            return []
+
+    async def count_users(self) -> int:
+        """Return total number of users."""
+        try:
+            async with self._db.execute("SELECT COUNT(*) AS c FROM users") as cur:
+                row = await cur.fetchone()
+            return row["c"] if row else 0
+        except Exception as e:
+            logger.error(f"Error counting users: {e}")
+            return 0
+
+    async def set_user_banned(self, user_id: int, banned: bool = True) -> bool:
+        """Toggle a user's banned status."""
+        try:
+            await self._db.execute(
+                "UPDATE users SET is_banned = ? WHERE id = ?",
+                (1 if banned else 0, user_id)
+            )
+            await self._db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error setting banned={banned} for user {user_id}: {e}")
+            await self._db.rollback()
+            return False
+
+    async def set_user_active(self, user_id: int, active: bool = True) -> bool:
+        """Toggle a user's active status."""
+        try:
+            await self._db.execute(
+                "UPDATE users SET is_active = ? WHERE id = ?",
+                (1 if active else 0, user_id)
+            )
+            await self._db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error setting active={active} for user {user_id}: {e}")
+            await self._db.rollback()
+            return False
+
+    async def delete_user(self, user_id: int) -> bool:
+        """Hard delete a user row (use with caution)."""
+        try:
+            await self._db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            await self._db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting user {user_id}: {e}")
+            await self._db.rollback()
+            return False
+
 
 
 db = Database()

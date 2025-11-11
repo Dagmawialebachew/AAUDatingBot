@@ -1,3 +1,7 @@
+# handlers_admin.py
+# Unified, paste-ready admin panel with FSM, pagination, broadcast,
+# and fully integrated ban/unban flows (with templates, notes, and unban requests).
+
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (
@@ -5,31 +9,115 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
-from database import db
-from bot_config import ADMIN_GROUP_ID, CHANNEL_ID
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.enums import ParseMode
+
 import logging
+from datetime import date
+
+from bot_config import ADMIN_GROUP_ID, CHANNEL_ID
+from database import db
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-# --- Admin IDs ---
-ADMIN_IDS = [1131741322]  # Populate with your admin IDs
+# --- Admins ---
+ADMIN_IDS = [1131741322]  # add more admin user IDs as needed
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
-# --- Admin Main Menu (Reply Keyboard) ---
+# --- FSM States ---
+class AdminBroadcastFSM(StatesGroup):
+    waiting_text = State()
+    confirm_send = State()
+
+class AdminModerationFSM(StatesGroup):
+    waiting_user_id = State()
+    waiting_action = State()       # "ban" or "unban"
+    waiting_reason = State()       # note/reason (template or custom)
+    confirm_action = State()
+
+class AdminUserListFSM(StatesGroup):
+    browsing_page = State()        # page index (int)
+
+
+# --- Constants and helpers ---
+USERS_PER_PAGE = 5
+
+BAN_TEMPLATES = [
+    "Spam or promotional content",
+    "Explicit or inappropriate profile photo",
+    "Harassment or offensive language",
+    "Fake or misleading identity",
+    "Solicitation or scams",
+]
+
+UNBAN_TEMPLATES = [
+    "Issue resolved; please follow community guidelines",
+    "Warning lifted; keep it respectful",
+    "Appeal accepted; thanks for your patience",
+    "We reviewed and reinstated access",
+]
+
 def get_admin_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📋 Confessions"), KeyboardButton(text="📊 Stats")],
             [KeyboardButton(text="📢 Broadcast"), KeyboardButton(text="👥 User Management")],
-            [KeyboardButton(text="🔙 Exit Admin Mode")]
+            [KeyboardButton(text="🗂️ Browse Users"), KeyboardButton(text="🔙 Exit Admin Mode")]
         ],
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="🔐 Admin controls..."
     )
+
+def user_card_text(u: dict) -> str:
+    username = f"@{u['username']}" if u.get("username") else "—"
+    banned = "🚫 BANNED" if u.get("is_banned") else "✅ Active"
+    campus = u.get("campus") or "—"
+    dept = u.get("department") or "—"
+    year = u.get("year") or "—"
+    bio = u.get("bio") or ""
+    bio_line = f"💭 “{bio}”" if bio else "💭 No bio yet"
+    coins = u.get("coins", 0)
+    return (
+        f"─────────────── ✨ ───────────────\n"
+        f"🆔 {u['id']} • {banned}\n"
+        f"👤 {u.get('name','Unknown')} ({username})\n"
+        f"📍 {campus} | {dept}\n"
+        f"🎓 {year}\n\n"
+        f"{bio_line}\n"
+        f"💰 Coins: {coins}"
+    )
+
+def get_user_admin_kb(user_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⛔ Ban", callback_data=f"admin_ban_{user_id}_{page}"),
+            InlineKeyboardButton(text="✅ Unban", callback_data=f"admin_unban_{user_id}_{page}"),
+        ],
+        [InlineKeyboardButton(text="🔎 View full row", callback_data=f"admin_view_{user_id}_{page}")],
+        [InlineKeyboardButton(text="⬅️ Prev Page", callback_data=f"users_page_{page-1}"),
+         InlineKeyboardButton(text="➡️ Next Page", callback_data=f"users_page_{page+1}")]
+    ])
+
+def get_ban_templates_kb() -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=reason, callback_data=f"mod_note_{reason}")]
+            for reason in BAN_TEMPLATES[:4]]
+    rows.append([InlineKeyboardButton(text=BAN_TEMPLATES[4], callback_data=f"mod_note_{BAN_TEMPLATES[4]}")])
+    rows.append([InlineKeyboardButton(text="✍️ Custom note", callback_data="mod_note_custom")])
+    rows.append([InlineKeyboardButton(text="🔙 Back", callback_data="mod_note_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def get_unban_templates_kb() -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=reason, callback_data=f"mod_note_{reason}")]
+            for reason in UNBAN_TEMPLATES[:4]]
+    rows.append([InlineKeyboardButton(text="✍️ Custom note", callback_data="mod_note_custom")])
+    rows.append([InlineKeyboardButton(text="🔙 Back", callback_data="mod_note_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 # --- Entry Point ---
 @router.message(Command("admin"))
@@ -38,6 +126,14 @@ async def admin_panel(message: Message):
         await message.answer("⛔️ Admin only!")
         return
     await message.answer("🔐 Welcome to the Admin Panel", reply_markup=get_admin_main_menu())
+
+
+# --- Exit Admin Mode ---
+@router.message(F.text == "🔙 Exit Admin Mode")
+async def exit_admin(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Exited admin mode.", reply_markup=None)
+
 
 # --- Confessions Panel ---
 def get_confessions_panel(confession_id: int = None) -> InlineKeyboardMarkup:
@@ -104,6 +200,7 @@ async def reject_confession(callback: CallbackQuery):
     await db.update_confession_status(confession_id, 'rejected')
     await callback.answer("❌ Rejected")
 
+
 # --- Stats Panel ---
 @router.message(F.text == "📊 Stats")
 async def admin_stats(message: Message):
@@ -120,33 +217,55 @@ async def admin_stats(message: Message):
     )
     await message.answer(text, reply_markup=get_admin_main_menu())
 
-# --- Broadcast ---
-@router.message(F.text == "📢 Broadcast")
-async def broadcast_prompt(message: Message):
-    if not is_admin(message.from_user.id):
-        return
-    await message.answer("✍️ Send me the broadcast message text:")
 
-@router.message(F.text.startswith("BROADCAST:"))
-async def broadcast_message(message: Message):
+# --- Broadcast with FSM & confirmation ---
+@router.message(F.text == "📢 Broadcast")
+async def broadcast_prompt(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    text = message.text.replace("BROADCAST:", "").strip()
+    await state.set_state(AdminBroadcastFSM.waiting_text)
+    await message.answer("✍️ Send the broadcast message (HTML allowed).")
+
+@router.message(AdminBroadcastFSM.waiting_text)
+async def broadcast_preview(message: Message, state: FSMContext):
+    text = message.text.strip()
+    await state.update_data(text=text)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Confirm Send", callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text="❌ Cancel", callback_data="broadcast_cancel")]
+    ])
+    await message.answer(f"Preview:\n\n{text}", reply_markup=kb, parse_mode=ParseMode.HTML)
+
+@router.callback_query(F.data == "broadcast_confirm")
+async def broadcast_send(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    data = await state.get_data()
+    text = data.get("text", "")
     user_ids = await db.get_all_active_user_ids()
     success, fail = 0, 0
     for uid in user_ids:
         try:
-            await message.bot.send_message(uid, text)
+            await callback.bot.send_message(uid, text, parse_mode=ParseMode.HTML)
             success += 1
-        except:
+        except Exception:
             fail += 1
-    await message.answer(f"✅ Broadcast complete!\nSuccess: {success}\nFailed: {fail}")
+    await state.clear()
+    await callback.message.answer(f"✅ Broadcast complete!\nSuccess: {success}\nFailed: {fail}")
+    await callback.answer("Sent")
 
-# --- User Management ---
+@router.callback_query(F.data == "broadcast_cancel")
+async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Broadcast canceled.")
+    await callback.answer()
+
+
+# --- User Management menu ---
 def get_user_management_panel() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Activate User", callback_data="admin_user_activate")],
-        [InlineKeyboardButton(text="⏸️ Deactivate User", callback_data="admin_user_deactivate")],
+        [InlineKeyboardButton(text="⛔ Ban / ✅ Unban", callback_data="admin_mod_enter")],
+        [InlineKeyboardButton(text="🗂️ Browse Users", callback_data="admin_browse_enter")],
         [InlineKeyboardButton(text="🗑️ Delete User", callback_data="admin_user_delete")],
         [InlineKeyboardButton(text="🔙 Back", callback_data="admin_back")]
     ])
@@ -157,23 +276,366 @@ async def user_management_menu(message: Message):
         return
     await message.answer("👥 User Management Panel", reply_markup=get_user_management_panel())
 
-@router.callback_query(F.data == "admin_user_activate")
-async def activate_user(callback: CallbackQuery):
-    await callback.message.answer("Enter user ID to activate:")
-    await callback.answer()
-
-@router.callback_query(F.data == "admin_user_deactivate")
-async def deactivate_user(callback: CallbackQuery):
-    await callback.message.answer("Enter user ID and reason to deactivate (format: ID | reason):")
-    await callback.answer()
-
-@router.callback_query(F.data == "admin_user_delete")
-async def delete_user(callback: CallbackQuery):
-    await callback.message.answer("Enter user ID to permanently delete:")
-    await callback.answer()
-
-# --- Back ---
 @router.callback_query(F.data == "admin_back")
 async def admin_back(callback: CallbackQuery):
     await callback.message.answer("🔐 Back to Admin Menu", reply_markup=get_admin_main_menu())
     await callback.answer()
+
+
+# --- Browsing Users ---
+@router.callback_query(F.data == "admin_browse_enter")
+async def browse_users_entry_cb(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    await state.set_state(AdminUserListFSM.browsing_page)
+    await state.update_data(page=0)
+    await show_users_page(callback, page=0)
+    await callback.answer()
+
+@router.message(F.text == "🗂️ Browse Users")
+async def browse_users_entry(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.set_state(AdminUserListFSM.browsing_page)
+    await state.update_data(page=0)
+    await show_users_page(message, page=0)
+
+async def show_users_page(target, page: int):
+    total = await db.count_users()
+    page = max(0, page)
+    offset = page * USERS_PER_PAGE
+    users = await db.get_users_page(offset=offset, limit=USERS_PER_PAGE)
+
+    chat_id = target.message.chat.id if hasattr(target, "message") else target.chat.id
+
+    if not users:
+        await target.bot.send_message(chat_id, f"No users on page {page+1}.")
+        return
+
+    for u in users:
+        caption = user_card_text(u)
+        kb = get_user_admin_kb(u["id"], page)
+        try:
+            if u.get("photo_file_id"):
+                await target.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=u["photo_file_id"],
+                    caption=caption,
+                    reply_markup=kb,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await target.bot.send_message(
+                    chat_id=chat_id,
+                    text=caption,
+                    reply_markup=kb,
+                    parse_mode=ParseMode.HTML
+                )
+        except Exception as e:
+            logger.error(f"Admin page send error for user {u.get('id')}: {e}")
+            await target.bot.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML
+            )
+
+    pages = max(1, (total + USERS_PER_PAGE - 1) // USERS_PER_PAGE)
+    nav_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Prev", callback_data=f"users_page_{page-1}"),
+         InlineKeyboardButton(text="➡️ Next", callback_data=f"users_page_{page+1}")]
+    ])
+    await target.bot.send_message(chat_id, f"Page {page+1}/{pages}", reply_markup=nav_kb)
+
+@router.callback_query(F.data.startswith("users_page_"))
+async def users_page(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    page = int(callback.data.split("_")[-1])
+    page = max(0, page)
+    await state.update_data(page=page)
+    await show_users_page(callback, page)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("admin_view_"))
+async def admin_view_full_row(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    _, _, uid, _page = callback.data.split("_")
+    uid = int(uid)
+    user = await db.get_user(uid)
+    if not user:
+        return await callback.answer("User not found")
+    fields = [
+        f"id={user.get('id')}",
+        f"username={user.get('username')}",
+        f"name={user.get('name')}",
+        f"gender={user.get('gender')}",
+        f"seeking_gender={user.get('seeking_gender')}",
+        f"campus={user.get('campus')}",
+        f"department={user.get('department')}",
+        f"year={user.get('year')}",
+        f"coins={user.get('coins')}",
+        f"is_active={user.get('is_active')}",
+        f"is_banned={user.get('is_banned')}",
+        f"created_at={user.get('created_at')}",
+    ]
+    await callback.message.answer("🧾 Full row\n" + "\n".join(fields))
+    await callback.answer()
+
+
+# --- Moderation FSM (Ban/Unban with note & confirmation) ---
+@router.callback_query(F.data == "admin_mod_enter")
+async def moderation_enter(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    await state.set_state(AdminModerationFSM.waiting_user_id)
+    await callback.message.answer("Enter user ID:")
+    await callback.answer()
+
+@router.message(AdminModerationFSM.waiting_user_id)
+async def moderation_user_id(message: Message, state: FSMContext):
+    try:
+        uid = int(message.text.strip())
+    except ValueError:
+        return await message.answer("Please enter a valid numeric user ID.")
+    user = await db.get_user(uid)
+    if not user:
+        return await message.answer("User not found.")
+    await state.update_data(user_id=uid)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⛔ Ban", callback_data="mod_choose_ban"),
+         InlineKeyboardButton(text="✅ Unban", callback_data="mod_choose_unban")]
+    ])
+    await message.answer(user_card_text(user), reply_markup=kb, parse_mode=ParseMode.HTML)
+
+@router.callback_query(F.data.in_(["mod_choose_ban", "mod_choose_unban"]))
+async def moderation_choose(callback: CallbackQuery, state: FSMContext):
+    action = "ban" if callback.data.endswith("ban") else "unban"
+    await state.update_data(action=action)
+    await state.set_state(AdminModerationFSM.waiting_reason)
+
+    kb = get_ban_templates_kb() if action == "ban" else get_unban_templates_kb()
+    await callback.message.answer("Select a note to send to the user, or choose Custom:", reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("mod_note_"))
+async def moderation_note_select(callback: CallbackQuery, state: FSMContext):
+    note = callback.data.replace("mod_note_", "")
+    if note == "custom":
+        await callback.message.answer("✍️ Type your custom note:")
+        await callback.answer()
+        return
+    await state.update_data(note=note)
+    await show_moderation_preview(callback, state)
+
+@router.callback_query(F.data == "mod_note_back")
+async def moderation_note_back(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    uid = data.get("user_id")
+    user = await db.get_user(uid)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⛔ Ban", callback_data="mod_choose_ban"),
+         InlineKeyboardButton(text="✅ Unban", callback_data="mod_choose_unban")]
+    ])
+    await callback.message.answer(user_card_text(user), reply_markup=kb, parse_mode=ParseMode.HTML)
+    await callback.answer()
+
+@router.message(AdminModerationFSM.waiting_reason)
+async def moderation_reason(message: Message, state: FSMContext):
+    note = message.text.strip()
+    await state.update_data(note=note)
+    await show_moderation_preview(message, state)
+
+async def show_moderation_preview(target, state: FSMContext):
+    data = await state.get_data()
+    uid = data.get("user_id")
+    action = data.get("action")
+    note = data.get("note", "")
+    user = await db.get_user(uid)
+
+    preview = (
+        f"Action: {'⛔ BAN' if action=='ban' else '✅ UNBAN'}\n"
+        f"User: {uid} • {user.get('name','Unknown')} (@{user.get('username','—')})\n\n"
+        f"📝 Note to user:\n{note}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Confirm", callback_data="mod_confirm")],
+        [InlineKeyboardButton(text="❌ Cancel", callback_data="mod_cancel")]
+    ])
+
+    try:
+        await target.message.answer(preview, reply_markup=kb)
+    except AttributeError:
+        await target.answer(preview, reply_markup=kb)
+
+@router.callback_query(F.data == "mod_cancel")
+async def moderation_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Moderation canceled.")
+    await callback.answer()
+
+@router.callback_query(F.data == "mod_confirm")
+async def moderation_confirm(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    data = await state.get_data()
+    uid = data["user_id"]
+    action = data["action"]
+    note = data.get("note", "")
+
+    try:
+        if action == "ban":
+            # Unified helper (stores note if supported)
+            ok = await db.set_user_banned(uid, True)  # change to (uid, True, note) if your helper supports note
+            if not ok:
+                raise RuntimeError("DB set_user_banned failed")
+
+            try:
+                await callback.bot.send_message(uid, f"🚫 You’ve been banned.\n\n📝 Note from admin:\n{note}")
+            except Exception:
+                pass
+            await callback.message.answer(f"User {uid} banned. Note sent.")
+        else:
+            ok = await db.set_user_banned(uid, False)  # change to (uid, False) plus note as context if you store
+            if not ok:
+                raise RuntimeError("DB set_user_banned failed")
+
+            card = (
+                "✅ You’ve been unbanned\n\n"
+                "Here’s the context so you’re informed:\n"
+                f"• Previous ban reason: {note}\n\n"
+                "Please keep the community respectful. Reach out if you have questions."
+            )
+            try:
+                await callback.bot.send_message(uid, card)
+            except Exception:
+                pass
+            await callback.message.answer(f"User {uid} unbanned. Card sent.")
+    except Exception as e:
+        logger.error(f"Moderation error: {e}")
+        await callback.message.answer("Failed to apply moderation.")
+
+    await state.clear()
+    await callback.answer("Done")
+
+
+# --- Inline ban/unban from the paginated browser (route into FSM) ---
+@router.callback_query(F.data.startswith("admin_ban_"))
+async def list_ban(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    _, _, uid, _page = callback.data.split("_")
+    uid = int(uid)
+    await state.set_state(AdminModerationFSM.waiting_reason)
+    await state.update_data(user_id=uid, action="ban")
+    await callback.message.answer("Select a ban note:", reply_markup=get_ban_templates_kb())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("admin_unban_") & ~F.data.startswith("admin_unban_request_"))
+async def list_unban(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    _, _, uid, _page = callback.data.split("_")
+    uid = int(uid)
+    await state.set_state(AdminModerationFSM.waiting_reason)
+    await state.update_data(user_id=uid, action="unban")
+    await callback.message.answer("Select an unban note:", reply_markup=get_unban_templates_kb())
+    await callback.answer()
+
+
+# --- Delete user (optional; safer to soft-disable) ---
+@router.callback_query(F.data == "admin_user_delete")
+async def delete_user(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    await callback.message.answer("Enter user ID to permanently delete: (consider soft disable instead)")
+    await callback.answer()
+
+# (intentionally no direct delete implementation to avoid accidents)
+
+
+# --- Unban request flow (user -> admin group) ---
+# In-memory tracker for per-day unban requests
+unban_requests_today = {}  # {user_id: {"date": date, "count": int}}
+
+@router.message(F.text == "🙏 Request Unban")
+async def request_unban(message: Message):
+    user_id = message.from_user.id
+    today = date.today()
+
+    # Check and update count
+    record = unban_requests_today.get(user_id)
+    if record and record["date"] == today:
+        if record["count"] >= 2:
+            await message.answer("⚠️ You have reached the daily limit of 2 unban requests. Try again tomorrow.")
+            return
+        record["count"] += 1
+    else:
+        unban_requests_today[user_id] = {"date": today, "count": 1}
+
+    # Fetch full profile
+    user = await db.get_user(user_id)
+    if not user:
+        await message.answer("❌ Could not fetch your profile for review.")
+        return
+
+    caption = user_card_text(user)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Unban User", callback_data=f"admin_unban_request_{user_id}")],
+        [InlineKeyboardButton(text="❌ Ignore Request", callback_data=f"admin_ignore_request_{user_id}")]
+    ])
+
+    # Send to admin group with photo if available
+    if user.get("photo_file_id"):
+        await message.bot.send_photo(
+            chat_id=ADMIN_GROUP_ID,
+            photo=user["photo_file_id"],
+            caption=f"📨 Unban request from user {user_id} (@{message.from_user.username or '—'})\n\n{caption}",
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        await message.bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=f"📨 Unban request from user {user_id} (@{message.from_user.username or '—'})\n\n{caption}",
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML
+        )
+
+    await message.answer("🙏 Your unban request has been submitted to the admins. Please wait for review.")
+
+@router.callback_query(F.data.startswith("admin_unban_request_"))
+async def admin_unban_request(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    user_id = int(callback.data.split("_")[-1])
+    ok = await db.set_user_banned(user_id, False)
+    if ok:
+        await callback.answer("✅ User unbanned")
+        await callback.message.answer(f"User {user_id} has been unbanned.")
+        try:
+            await callback.bot.send_message(user_id, "✅ Your unban request was approved. Welcome back!")
+        except Exception:
+            pass
+    else:
+        await callback.answer("❌ Failed", show_alert=True)
+
+@router.callback_query(F.data.startswith("admin_ignore_request_"))
+async def admin_ignore_request(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+    user_id = int(callback.data.split("_")[-1])
+    await callback.answer("❌ Request ignored")
+    await callback.message.answer(f"Unban request from user {user_id} was ignored.")
+    try:
+        await callback.bot.send_message(user_id, "❌ Your unban request was reviewed but not approved.")
+    except Exception:
+        pass
+
+
+# --- Fallback (quiet for admins) ---
+@router.message()
+async def fallback_admin(message: Message):
+    if is_admin(message.from_user.id):
+        return

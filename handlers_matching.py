@@ -215,7 +215,7 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
 
     # --- Progress indicator ---
     total = len(candidates)
-    profile_text += f"\n\n📊 Profile {current_index+1} of {total}"
+    profile_text += f"\n\n🎬 Scene {current_index+1} of {total}- keep swiping ➡️"
 
     # --- Send profile ---
     try:
@@ -265,7 +265,7 @@ async def handle_like_message(message: Message, state: FSMContext):
     print(f"add_like result: {result}")
 
     if result["status"] == "match":
-        await celebrate_match(message.bot, liker_id, liked_id, result["match_id"], context="swipe")
+        await celebrate_match(message.bot, liker_id, liked_id, result["match_id"], context="swipe", liked_before=True)
     elif result["status"] == "liked":
         await notify_like(message.bot, liker_id, liked_id)
     else:

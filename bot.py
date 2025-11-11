@@ -24,7 +24,7 @@ from handlers_leaderboard import router as leaderboard_router
 from handlers_coin_and_shop import router as coin_and_shop_router
 from handlers_invite import router as invite_router
 from notifications import setup_scheduler, shutdown_scheduler
-from middlewares.rate_limit import RateLimitMiddleware
+from middlewares.rate_limit import RateLimitMiddleware, GracefulFallbackMiddleware, BanCheckMiddleware
 
 # -------------------- Env --------------------
 load_dotenv()  # optional locally; Render sets env vars from render.yaml
@@ -62,6 +62,12 @@ def setup_handlers(dp: Dispatcher):
 
     dp.message.middleware(RateLimitMiddleware(rate_limit=1))
     dp.callback_query.middleware(RateLimitMiddleware(rate_limit=1))
+    
+    dp.message.middleware(BanCheckMiddleware(db))
+    dp.callback_query.middleware(BanCheckMiddleware(db))
+    
+    dp.message.middleware(GracefulFallbackMiddleware())
+    dp.callback_query.middleware(GracefulFallbackMiddleware())
 
 # -------------------- Bot Commands --------------------
 from aiogram.types import BotCommandScopeDefault, BotCommandScopeChat
@@ -91,25 +97,25 @@ async def on_startup(bot: Bot):
     await db.connect()
     await setup_bot_commands(bot)
     setup_scheduler(bot)
-    if ADMIN_GROUP_ID:
-        try:
-            await bot.send_message(
-                ADMIN_GROUP_ID,
-                "🤖 CrushConnect Bot Started! 🔥\n\nAll systems operational ✅",
-            )
-        except Exception as e:
-            logger.error(f"Could not send startup message to admin group: {e}")
+    # if ADMIN_GROUP_ID:
+    #     try:
+    #         await bot.send_message(
+    #             ADMIN_GROUP_ID,
+    #             "🤖 CrushConnect Bot Started! 🔥\n\nAll systems operational ✅",
+    #         )
+    #     except Exception as e:
+    #         logger.error(f"Could not send startup message to admin group: {e}")
     logger.info("Bot startup complete!")
 
 async def on_shutdown(bot: Bot):
     logger.info("Bot is shutting down...")
     shutdown_scheduler()
     await db.close()
-    if ADMIN_GROUP_ID:
-        try:
-            await bot.send_message(ADMIN_GROUP_ID, "🤖 CrushConnect Bot Stopped ⏸️")
-        except Exception as e:
-            logger.error(f"Could not send shutdown message to admin group: {e}")
+    # if ADMIN_GROUP_ID:
+    #     try:
+    #         await bot.send_message(ADMIN_GROUP_ID, "🤖 CrushConnect Bot Stopped ⏸️")
+    #     except Exception as e:
+    #         logger.error(f"Could not send shutdown message to admin group: {e}")
     logger.info("Bot shutdown complete!")
 
 # -------------------- Health Check --------------------

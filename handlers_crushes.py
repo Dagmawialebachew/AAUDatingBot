@@ -42,6 +42,8 @@ def get_crush_dashboard_keyboard() -> ReplyKeyboardMarkup:
 def _generate_list_pagination_keyboard(
     data_list: list, 
     current_page: int, 
+
+
     list_type: str, 
     user_id: int,   # 👈 pass this in
 ) -> InlineKeyboardMarkup:
@@ -78,8 +80,7 @@ def _generate_list_pagination_keyboard(
             callback_data = f"viewprofile_{item_user['id']}_admirers_{current_page}"
         else:  # 'likes'
             text = f"👤 {item_user['name']}"
-            callback_data = f"viewprofile_{item_user['id']}_likes_{current_page}"
-            
+            callback_data = f"viewlike_{item_user['id']}_likes_{current_page}"            
         row.append(InlineKeyboardButton(text=text, callback_data=callback_data))
         
         if len(row) == 2:
@@ -306,6 +307,85 @@ async def handle_match_chat_selection(callback: CallbackQuery, state: FSMContext
     
     # IMPORTANT: Call the external start_chat handler logic
     await start_chat(callback, state)
+
+
+@router.callback_query(F.data.startswith("viewlike_"))
+async def view_profile_from_likes(callback: CallbackQuery, state: FSMContext):
+    try:
+        _, user_id_str, list_type, page_str = callback.data.split("_")
+        target_id = int(user_id_str)
+        page = int(page_str)
+    except Exception:
+        await callback.answer("Invalid profile reference 💀", show_alert=True)
+        return
+
+    candidate = await db.get_user(target_id)
+    if not candidate:
+        await callback.answer("Profile not found 💀", show_alert=True)
+        return
+
+    viewer_id = callback.from_user.id
+    viewer = await db.get_user(viewer_id)
+
+    # vibe score calc
+    viewer_vibe = json.loads(viewer.get('vibe_score', '{}') or '{}')
+    candidate_vibe = json.loads(candidate.get('vibe_score', '{}') or '{}')
+    vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
+    candidate_interests = await db.get_user_interests(candidate["id"])
+    viewer_interests = await db.get_user_interests(viewer_id)
+
+    profile_text = await format_profile_text(
+        candidate,
+        vibe_score=vibe_score,
+        show_full=False,
+        revealed=True,
+        candidate_interests=candidate_interests,
+        viewer_interests=viewer_interests
+    )
+
+    # breaker line (optional)
+    breakers = [
+        "─────────────── ✨ ───────────────",
+        "⚡ Fresh profile unlocked!",
+        "🌟 Who’s this? Let’s find out..."
+    ]
+    breaker_line = random.choice(breakers)
+    try:
+        await callback.message.answer(breaker_line)
+    except Exception:
+        pass
+
+    # actions
+    actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Unlike", callback_data=f"unlike_{target_id}"),
+ InlineKeyboardButton(text="🔙 Back", callback_data=f"backtolist_{list_type}_{page}")]
+
+    ])
+
+    # final profile card
+    try:
+        if candidate.get("photo_file_id"):
+            await callback.message.answer_photo(
+                photo=candidate["photo_file_id"],
+                caption=profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await callback.message.answer(
+                profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error(f"Error showing profile: {e}")
+        await callback.message.answer(
+            profile_text,
+            reply_markup=actions_kb,
+            parse_mode=ParseMode.HTML
+        )
+
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("viewprofile_"), F.state == CrushState.viewing_admirers)

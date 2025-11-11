@@ -1,3 +1,4 @@
+from datetime import date
 import random
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
@@ -11,8 +12,8 @@ import json
 from typing import Callable, Dict, List, Tuple, Optional, Union
 # Assuming these imports are available in the bot's environment
 from database import db
-from bot_config import AAU_CAMPUSES, AAU_DEPARTMENTS, INTEREST_CATEGORIES, YEARS, GENDERS, VIBE_QUESTIONS, MAX_BIO_LENGTH
-from utils import validate_bio, download_and_resize_image
+from bot_config import AAU_CAMPUSES, AAU_DEPARTMENTS, ADMIN_GROUP_ID, INTEREST_CATEGORIES, YEARS, GENDERS, VIBE_QUESTIONS, MAX_BIO_LENGTH
+from utils import calculate_vibe_compatibility, format_profile_text, validate_bio, download_and_resize_image
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -1023,7 +1024,41 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
 
         # Call show_main_menu with a fresh Message context
         from handlers_main import show_main_menu
-        await show_main_menu(callback.message, user_id=user_id)
+        await show_main_menu(callback.message, user_id=user_id)        
+        profile_text = await format_profile_text(
+        user_data,
+        vibe_score=calculate_vibe_compatibility({}, json.loads(user_data['vibe_score'])),
+        show_full=True,
+        candidate_interests=await db.get_user_interests(user_id),
+        revealed=True
+    )
+        profile_text = f"🆔 User ID: {user_id}\n\n{profile_text}"
+
+        # Inline buttons for admin actions
+        actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⛔ Ban User", callback_data=f"admin_ban_{user_id}")],
+            [InlineKeyboardButton(text="✅ Unban User", callback_data=f"admin_unban_{user_id}")]
+        ])
+
+        # Send to admin group
+        import bot
+        from bot import ADMIN_GROUP_ID
+
+        if user_data.get("photo_file_id"):
+            await callback.bot.send_photo(
+                chat_id=ADMIN_GROUP_ID,
+                photo=user_data["photo_file_id"],
+                caption=profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
 
 
     else:
@@ -1032,8 +1067,55 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
 
-
+unban_requests_today = {} 
 # --- View Profile Handlers (Uses the new helper) ---
+@router.message(F.text == "🙏 Request Unban")
+async def request_unban(message: Message):
+    user_id = message.from_user.id
+    today = date.today()
+
+    # Check and update request count
+    record = unban_requests_today.get(user_id)
+    if record and record["date"] == today:
+        if record["count"] >= 2:
+            await message.answer("⚠️ You have reached the daily limit of 2 unban requests. Try again tomorrow.")
+            return
+        record["count"] += 1
+    else:
+        unban_requests_today[user_id] = {"date": today, "count": 1}
+
+    # Fetch full profile
+    user = await db.get_user(user_id)
+    if not user:
+        await message.answer("❌ Could not fetch your profile for review.")
+        return
+    from handlers_admin import user_card_text
+    caption = user_card_text(user)
+    # reuse your helper
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Unban User", callback_data=f"admin_unban_request_{user_id}")],
+        [InlineKeyboardButton(text="❌ Ignore Request", callback_data=f"admin_ignore_request_{user_id}")]
+    ])
+
+    # Send to admin group with photo if available
+    if user.get("photo_file_id"):
+        await message.bot.send_photo(
+            chat_id=ADMIN_GROUP_ID,
+            photo=user["photo_file_id"],
+            caption=f"📨 Unban request from user {user_id} (@{message.from_user.username or '—'})\n\n{caption}",
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        await message.bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=f"📨 Unban request from user {user_id} (@{message.from_user.username or '—'})\n\n{caption}",
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML
+        )
+
+    # Confirm to user
+    await message.answer("🙏 Your unban request has been submitted to the admins. Please wait for review.")
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message):

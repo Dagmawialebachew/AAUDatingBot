@@ -26,6 +26,7 @@
   - `created_at` (timestamptz) - Registration date
   - `last_active` (timestamptz) - Last activity timestamp
   
+  
   ### 2. `likes`
   Tracks who liked whom
   - `id` (uuid, primary key)

@@ -237,7 +237,152 @@ async def get_profile_text_and_kb(
     return profile_text, actions_kb
 
 
-async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, context: str = "swipe"):
+
+
+
+
+@router.callback_query(F.data.startswith("viewprofile_") | F.data.startswith("backlike_viewprofile_"))
+async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
+    raw = callback.data
+    logger.info(f"view_profile callback triggered: {raw}")
+
+    # --- Parse callback data ---
+    try:
+        parts = raw.split("_")
+        if parts[0] == "backlike":
+            _, _, user_id_str, list_type, page_str = parts
+        else:
+            _, user_id_str, list_type, page_str = parts
+
+        target_id = int(user_id_str)
+        page = int(page_str)
+    except Exception as e:
+        logger.error(f"Failed to parse callback_data: {raw}, error: {e}")
+        await callback.answer("Invalid profile reference 💀", show_alert=True)
+        return
+
+    # --- Fetch candidate and viewer ---
+    candidate = await db.get_user(target_id)
+    if not candidate:
+        logger.warning(f"Candidate not found: user_id={target_id}")
+        await callback.answer("Profile not found 💀", show_alert=True)
+        return
+
+    viewer_id = callback.from_user.id
+    viewer = await db.get_user(viewer_id)
+
+    logger.info(f"viewer_id={viewer_id}, target_id={target_id}, list_type={list_type}, page={page}")
+
+    # --- Vibe score ---
+    viewer_vibe = _safe_json_load(viewer.get("vibe_score") if viewer else "{}")
+    candidate_vibe = _safe_json_load(candidate.get("vibe_score"))
+    vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
+
+    # --- Interests ---
+    viewer_interests = await db.get_user_interests(viewer_id)
+    candidate_interests = await db.get_user_interests(target_id)
+
+    # --- Fetch match row safely ---
+    match_row = await db.get_active_match_between(viewer_id, target_id)
+    match_id = match_row.get("id") if match_row else None
+    print('match_row:', match_row)
+    print('match_id:', match_id)
+
+    if match_row:
+        is_revealed = match_row.get("revealed", False)
+        logger.info(f"Match found: {match_row}")
+    else:
+        is_revealed = False
+        logger.info("No active match found between viewer and target.")
+
+    # --- Force reveal if user is in 'likes' list ---
+    if list_type == "likes":
+        is_revealed = True
+        logger.info("Auto-revealed profile because viewer is viewing their 'likes' list.")
+
+    # --- Build profile text ---
+    profile_text = await format_profile_text(
+        candidate,
+        vibe_score=vibe_score,
+        show_full=False,
+        viewer_interests=viewer_interests,
+        candidate_interests=candidate_interests,
+        revealed=is_revealed
+    )
+
+    # --- Rotating breaker for UX ---
+    breakers = [
+        "─────────────── ✨ ───────────────",
+        "💘 Another crush appears...",
+        "🎭 A new face steps into the spotlight",
+        "⚡ Fresh profile unlocked!",
+        "🌟 Who’s this? Let’s find out..."
+    ]
+    breaker_line = random.choice(breakers)
+    try:
+        await callback.message.answer(breaker_line)
+    except Exception:
+        pass
+
+    # --- Build action keyboard ---
+    if match_row and not is_revealed:
+        actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🎭 Reveal Identity (30 coins)",
+                callback_data=f"reveal_{match_row['match_id']}"
+            )],
+            [InlineKeyboardButton(text="🔙 Back", callback_data=f"backtolist_{list_type}_{page}")]
+        ])
+        logger.info(f"Actions KB: Reveal button shown for match_id={match_row['match_id']}")
+    else:
+        if list_type == "admirers":
+            actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❤️ Like Back", callback_data=f"likeback_{target_id}")],
+                [InlineKeyboardButton(text="❌ Ignore", callback_data=f"ignore_{target_id}")],
+                [InlineKeyboardButton(text="🔙 Back to Admirers", callback_data=f"backtolist_admirers_{page}")]
+            ])
+        elif list_type == "likes":
+            actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Remove Like", callback_data=f"unlike_{target_id}")],
+                [InlineKeyboardButton(text="🔙 Back to My Likes", callback_data=f"backtolist_likes_{page}")]
+            ])
+        else:  # matches
+            actions_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💬 Open Chat", callback_data=f"chat_{match_id}")],
+                [InlineKeyboardButton(text="🔙 Back to Crushes", callback_data=f"backtolist_{list_type}_{page}")]
+            ])
+        logger.info(f"Actions KB: Default buttons for list_type={list_type}")
+
+    # --- Clean UX: remove old message ---
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # --- Send profile ---
+    try:
+        if candidate.get("photo_file_id") and is_revealed:
+            await callback.message.answer_photo(
+                photo=candidate["photo_file_id"],
+                caption=profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await callback.message.answer(
+                profile_text,
+                reply_markup=actions_kb,
+                parse_mode=ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error(f"Error showing profile: {e}")
+        await callback.message.answer(profile_text, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
+
+    await callback.answer()
+
+
+
+async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, context: str = "swipe", liked_before: bool = False):
     """
     Cinematic match celebration:
     - Reward coins
@@ -279,19 +424,42 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
         viewer_vibe = _safe_json_load(viewer.get("vibe_score") if viewer else "{}")
         candidate_vibe = _safe_json_load(candidate.get("vibe_score") if candidate else "{}")
         vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
-
+        
         if is_initiator:
-            # First liker → cinematic teaser only
             logger.info(f"[send_profile] {to_user} is INITIATOR -> sending teaser only")
-
             caption = (
                 f"{breaker_line}\n\n"
                 f"🎉 <b>It’s a Match!</b>\n\n"
                 f"💰 +10 coins added!\n"
                 f"Use the buttons below to start chatting or view profile."
             )
+            await bot.send_message(to_user, caption, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
+
+
+        elif liked_before:
+            logger.info(f"[send_profile] {to_user} is SECOND LIKER (liked_before=True)")
+
+            # Flip reveal flag in DB
+            try:
+                await db._db.execute(
+                    "UPDATE matches SET revealed = TRUE WHERE id = ?",
+                    (match_id,)
+                )
+                await db._db.commit()
+                logger.info(f"[celebrate_match] Match {match_id} set to revealed=TRUE")
+            except Exception as e:
+                logger.error(f"[celebrate_match] Failed to update reveal flag: {e}")
+
+            caption = (
+                f"{breaker_line}\n\n"
+                f"🎉 <b>It’s a Match!</b>\n\n"
+                f"🫀 <b>The user liked you before!</b>\n\n"
+                f"💰 +10 coins added!\n"
+                f"Use the buttons below to start chatting or view profile."
+            )
 
             await bot.send_message(to_user, caption, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
+
 
         else:
             # Second liker → identity-hidden profile text
@@ -429,10 +597,10 @@ async def handle_back_to_list(callback: CallbackQuery, state: FSMContext):
 # -----------------------
 @router.callback_query(F.data.startswith("unlike_"))
 async def handle_unlike(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
     """
-    Removes a like from the DB and updates the profile card message.
-    Then immediately re-renders the 'My Likes' list with a playful header.
+    Removes a like from the DB and refreshes the 'My Likes' list.
+    Deletes the old profile card so the photo + caption disappear,
+    then shows a playful confirmation header and re-renders the list.
     """
     try:
         target_id = int(callback.data.split("_", 1)[1])
@@ -440,15 +608,11 @@ async def handle_unlike(callback: CallbackQuery, state: FSMContext):
 
         success = await db.remove_like(user_id, target_id)
         if success:
-            # Confirmation message on the profile card
+            # Delete the old profile card (photo + caption)
             try:
-                await callback.message.edit_caption(
-                    "💔 You’ve taken back your like.\n\nThey won’t appear in your 'My Likes' list anymore."
-                )
-            except Exception:
-                await callback.message.answer(
-                    "💔 You’ve taken back your like.\n\nThey won’t appear in your 'My Likes' list anymore."
-                )
+                await callback.message.delete()
+            except Exception as e:
+                logger.warning(f"Could not delete profile card: {e}")
 
             await callback.answer("Like removed ❌")
 
@@ -461,7 +625,7 @@ async def handle_unlike(callback: CallbackQuery, state: FSMContext):
             ]
             header = random.choice(followups)
 
-            # Now actually render the updated list
+            # Send confirmation + re-render list
             await callback.message.answer(header)
             await _render_crush_list_view(
                 callback.message,

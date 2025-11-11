@@ -98,33 +98,68 @@ async def format_profile_text(
     show_full: bool = False,
     viewer_interests: list = None,
     candidate_interests: list = None,
-    revealed: bool = False,  # 👈 supports both modes
+    revealed: bool = False,
+    current_index: int = 0,
+    total: int = 1
 ) -> str:
     """
     Build a cinematic profile text (revealed or anonymous) with vibe score & interests.
-    Can be reused for matches, likes, admirers, etc.
+    Matches the redesigned card style.
     """
-    # Safety and cleanup
     campus = hd.quote(user.get("campus", ""))
     department = hd.quote(user.get("department", ""))
     year = hd.quote(str(user.get("year", "")))
     bio = hd.quote(user.get("bio", ""))
-    
+    name = hd.quote(user.get("name", "Unknown"))
 
     # ---------- REVEALED ----------
     if revealed:
-        name = hd.quote(user.get("name", "Unknown"))
-        text = f"👤 {name}\n"
+        # Hero line: name + vibe
+        text = f"👤 {name} — {vibe_label(vibe_score)}\n\n"
+
+        # Context
         text += f"📍 {campus} | {department}\n"
         text += f"🎓 {year}\n\n"
-        text += f"💭 {bio}\n"
 
+        # Bio
+        bio_formats = [
+            lambda b: f"💭 “{b}”\n\n",
+            lambda b: f"💭 <i>{b}</i>\n\n",
+            lambda b: f"💭 ✨ “{b}” ✨\n\n",
+            lambda b: f"🎬 Bio: “{b}”\n\n",
+        ]
+        if bio:
+            formatter = random.choice(bio_formats)
+            text += formatter(bio)
+
+        # Interests
+        if candidate_interests is None:
+            candidate_interests = []
+
+        if viewer_interests:
+            shared = list(set(viewer_interests) & set(candidate_interests))
+            if shared:
+                text += "🤝 Shared Interests\n "
+                # Show only top 2 shared interests
+                text += " | ".join(shared[:2])
+                if len(shared) > 2:
+                    text += f" | +{len(shared)-2} more"
+            elif candidate_interests:
+                # Reveal only top 2 candidate interests
+                text += "✨ Their Interests\n "
+                text += " | ".join(candidate_interests[:2])
+        else:
+            if candidate_interests:
+                text += "✨ Interests\n "
+                text += " | ".join(candidate_interests[:2])
+
+
+        # Scene indicator
+
+        # Optional username if full mode
         if show_full and user.get("username"):
             username = hd.quote(user["username"])
             text += f"\n📱 @{username}"
-
-        if vibe_score is not None:
-            text += f"\n\n{vibe_label(vibe_score)}"
 
     # ---------- ANONYMOUS ----------
     else:
@@ -141,25 +176,6 @@ async def format_profile_text(
             f"{interests_hint}\n"
             "🙈 <i>Photo blurred until reveal...</i>"
         )
-
-    # ---------- INTERESTS ----------
-    if candidate_interests is None:
-        candidate_interests = []
-
-    if viewer_interests:
-        shared = list(set(viewer_interests) & set(candidate_interests))
-        if shared:
-            text += "\n\n🤝 <b>Shared Interests</b>\n"
-            text += " • " + "\n • ".join(shared[:3])
-            if len(shared) > 3:
-                text += f"\n • +{len(shared)-3} more..."
-        elif candidate_interests:
-            text += "\n\n✨ <b>Their Interests</b>\n"
-            text += " • " + "\n • ".join(candidate_interests[:3])
-    else:
-        if candidate_interests:
-            text += "\n\n✨ <b>Interests</b>\n"
-            text += " • " + "\n • ".join(candidate_interests[:3])
 
     return text
 

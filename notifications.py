@@ -108,24 +108,45 @@ async def send_weekly_match_reminder(bot):
     except Exception as e:
         logger.error(f"Error sending Sunday reminders: {e}")
 
+
+
 async def update_weekly_leaderboard(bot):
     """Updates the leaderboard cache and posts an announcement to the channel."""
     try:
-        # Update the leaderboard cache first (assumes this method handles the SQLite logic)
+        # Refresh the cache
         await db.update_leaderboard_cache()
 
-        await bot.send_message(
-            CHANNEL_ID,
+        # Now fetch the updated leaderboard
+        leaderboard = await db.get_weekly_leaderboard(limit=10)
+
+        if not leaderboard:
+            await bot.send_message(
+                CHANNEL_ID,
+                "🏆 Weekly Leaderboard Update! 🏆\n\n"
+                "No data yet for this week. Keep engaging to climb the ranks! 🔥"
+            )
+            logger.warning("Weekly leaderboard update posted with no data")
+            return
+
+        # Build a nice text block
+        lines = []
+        for idx, user in enumerate(leaderboard, start=1):
+            lines.append(f"{idx}. {user['name']} ({user['campus']}) — ❤️ {user['likes_received']}")
+
+        text = (
             "🏆 Weekly Leaderboard Update! 🏆\n\n"
-            "Check out this week's most popular profiles! 🔥\n\n"
-            "Use /leaderboard in the bot to see the full list 👀\n\n"
+            "Here are this week's most popular profiles:\n\n"
+            + "\n".join(lines) +
+            "\n\nUse /leaderboard in the bot to see the full list 👀\n\n"
             "@CrushConnectBot"
         )
 
-        logger.info("Posted weekly leaderboard update")
+        await bot.send_message(CHANNEL_ID, text)
+        logger.info("Posted weekly leaderboard update with %d entries", len(leaderboard))
 
     except Exception as e:
-        logger.error(f"Error posting leaderboard: {e}")
+        logger.error("Error posting leaderboard: %s", e)
+
 
 def setup_scheduler(bot):
     """Configures and starts the APScheduler jobs."""
