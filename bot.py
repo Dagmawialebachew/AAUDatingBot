@@ -123,6 +123,7 @@ async def on_shutdown(bot: Bot):
 async def health_check(request):
     return web.Response(text="OK")
 
+
 # -------------------- Webhook App Factory --------------------
 async def create_app() -> web.Application:
     if not BOT_TOKEN:

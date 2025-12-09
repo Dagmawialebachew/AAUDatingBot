@@ -3,6 +3,8 @@ FROM python:3.12-slim
 
 # Prevent Python from buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
+# Dockerfile
+ENV POSTGRES_DSN=postgresql://neondb_owner:npg_2N4tvDmsuFiB@ep-summer-feather-adu6z5pt-pooler.c-2.us-east-1.aws.neon.tech/aaudating?sslmode=require
 
 # Set working directory
 WORKDIR /app
