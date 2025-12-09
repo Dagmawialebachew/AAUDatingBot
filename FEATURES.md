@@ -1,4 +1,4 @@
-# CrushConnect - Complete Feature List
+# AAUPulse - Complete Feature List
 
 ## ✅ Implemented Features (100% Complete)
 
@@ -123,7 +123,7 @@
 - ✅ Count of pending items
 
 **Channel Integration:**
-- ✅ Auto-post to @AAUCrushConnect
+- ✅ Auto-post to @AAUAAUPulse
 - ✅ Formatted confession display
 - ✅ Campus & department tags
 - ✅ Anonymous attribution
@@ -451,7 +451,7 @@
 **User Guides:**
 - ✅ START_HERE.md
 - ✅ QUICKSTART.md
-- ✅ README_CRUSHCONNECT.md
+- ✅ README_AAUPulse.md
 
 **Technical Docs:**
 - ✅ PROJECT_STRUCTURE.md
@@ -482,7 +482,7 @@
 - ✅ Engaging copy
 
 **Message Examples:**
-- ✅ "Yooo welcome to CrushConnect! 🔥"
+- ✅ "Yooo welcome to AAUPulse! 🔥"
 - ✅ "Bruh... upload that selfie 👻"
 - ✅ "No cap, this'll take 2 minutes 💯"
 - ✅ "Time to find your match... 😏"

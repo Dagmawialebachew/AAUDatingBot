@@ -611,12 +611,13 @@ async def cmd_start(message: Message, state: FSMContext):
         await show_main_menu(message)
     else:
         await message.answer(
-            "Yooo welcome to CrushConnect! 🔥\n\n"
-            "The ONLY place where AAU students shoot their shot 😏\n\n"
-            "Before you start swiping, let's set up your profile.\n"
-            "No cap, this'll take like 2 minutes 💯\n\n"
-            "Ready? Let's goooo! 🚀"
-        )
+    "🔥 Yooo, welcome to AAUPulse! 🔥\n\n"
+    "The heartbeat of AAU — where students shoot their shot 😏\n\n"
+    "Before you start swiping, let’s lock in your vibe.\n"
+    "No cap, it takes just 2 minutes 💯\n\n"
+    "Ready to start your journey? Let’s gooo 🚀"
+)
+
         await message.answer(
             "First up... What's your gender? 👀",
             reply_markup=get_gender_keyboard()
@@ -938,7 +939,6 @@ def _format_overlap_count(count: int) -> str:
     else:
         return f"shared with {count//1000}K+ people"
 
-
 @router.callback_query(F.data.in_(["interests_done", "interests_skip"]), StateFilter(ProfileSetup.interests))
 async def finish_interests(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -971,14 +971,13 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
         if interests:
             chosen = random.choice(interests)
             query = """
-                SELECT COUNT(DISTINCT user_id) as overlap_count
+                SELECT COUNT(DISTINCT i.user_id) AS overlap_count
                 FROM interests i
                 JOIN interest_catalog ic ON i.interest_id = ic.id
-                WHERE ic.name = ?
+                WHERE ic.name = $1
             """
-            async with db._db.execute(query, (chosen,)) as cursor:
-                row = await cursor.fetchone()
-                overlap_count = row["overlap_count"] if row else 0
+            row = await db._db.fetchrow(query, chosen)
+            overlap_count = row["overlap_count"] if row else 0
 
             teaser_text = (
                 f"✨ Looks like { _format_overlap_count(overlap_count) } here also love <b>{chosen}</b>!\n\n"
@@ -1001,7 +1000,7 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
                         referrer_id,
                         (
                             "🎉 <b>Referral Success!</b>\n\n"
-                            "👥 A new friend just joined <b>CrushConnect</b> using your link!\n\n"
+                            "👥 A new friend just joined <b>AAUPulse</b> using your link!\n\n"
                             "💰 You earned <b>+50🪙</b>\n"
                             f"🏦 Balance: {new_balance}🪙\n"
                             f"📊 Total Referrals: {total_referrals}\n\n"
@@ -1012,26 +1011,28 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
                 except Exception as e:
                     logger.warning(f"Could not notify referrer {referrer_id}: {e}")
 
-
         await callback.message.answer(
-            "🎉 <b>YOOO YOU'RE IN!</b> 🎉\n\n"
-            f"Welcome to <b>CrushConnect</b>, {data['name']}! 🔥\n\n"
-            "✨ Your vibe is set, your interests are locked in.\n"
-            "💰 You start with <b>120 coins</b> to play with.\n\n"
-            "Now… let’s find your first match 😏",
+            
+    "🎉 <b>YOOO YOU'RE IN!</b> 🎉\n\n"
+    f"Welcome to <b>AAUPulse</b>, {data['name']}! 🔥\n\n"
+    "✨ Your vibe is live, your interests are locked.\n"
+    "💰 You’re starting with <b>120 coins</b> to flex.\n\n"
+    "Now it’s time to find your first match 😏\n"
+    "👉 <b>❤️ Find Matches →</b>\n\n",
             parse_mode="HTML"
         )
 
         # Call show_main_menu with a fresh Message context
         from handlers_main import show_main_menu
-        await show_main_menu(callback.message, user_id=user_id)        
+        await show_main_menu(callback.message, user_id=user_id)
+
         profile_text = await format_profile_text(
-        user_data,
-        vibe_score=calculate_vibe_compatibility({}, json.loads(user_data['vibe_score'])),
-        show_full=True,
-        candidate_interests=await db.get_user_interests(user_id),
-        revealed=True
-    )
+            user_data,
+            vibe_score=calculate_vibe_compatibility({}, json.loads(user_data['vibe_score'])),
+            show_full=True,
+            candidate_interests=await db.get_user_interests(user_id),
+            revealed=True
+        )
         profile_text = f"🆔 User ID: {user_id}\n\n{profile_text}"
 
         # Inline buttons for admin actions
@@ -1041,9 +1042,7 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
         ])
 
         # Send to admin group
-        import bot
         from bot import ADMIN_GROUP_ID
-
         if user_data.get("photo_file_id"):
             await callback.bot.send_photo(
                 chat_id=ADMIN_GROUP_ID,
@@ -1053,13 +1052,12 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
                 parse_mode=ParseMode.HTML
             )
         else:
-            await bot.send_message(
+            await callback.bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
                 text=profile_text,
                 reply_markup=actions_kb,
                 parse_mode=ParseMode.HTML
             )
-
 
     else:
         await callback.message.answer("💀 Something went wrong.\nTry again with /start")
@@ -1753,20 +1751,22 @@ async def view_shared_interests(message: Message):
         return
 
     query = """
-        SELECT ic.name, COUNT(DISTINCT i2.user_id) as overlap_count
+        SELECT ic.name, COUNT(DISTINCT i2.user_id) AS overlap_count
         FROM interests i1
         JOIN interests i2 ON i1.interest_id = i2.interest_id
         JOIN interest_catalog ic ON i1.interest_id = ic.id
-        WHERE i1.user_id = ? AND i2.user_id != ?
+        WHERE i1.user_id = $1 AND i2.user_id != $2
         GROUP BY ic.name
         ORDER BY overlap_count DESC
         LIMIT 5
     """
-    async with db._db.execute(query, (user_id, user_id)) as cursor:
-        rows = await cursor.fetchall()
+    rows = await db._db.fetch(query, user_id, user_id)
 
     if not rows:
-        text = "🤔 Nobody shares your interests yet… but that makes you unique!\n\nKeep them set — matches will come."
+        text = (
+            "🤔 Nobody shares your interests yet… but that makes you unique!\n\n"
+            "Keep them set — matches will come."
+        )
     else:
         text = "🤝 <b>Your Shared Interests</b>\n\n"
         for row in rows:
@@ -1774,8 +1774,6 @@ async def view_shared_interests(message: Message):
         text += "\n✨ These overlaps boost your match vibes!"
 
     await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=get_interests_menu_keyboard())
-
-
 
 @router.message(F.text == "📊 View Trending Interests")
 async def view_trending_interests(message: Message):

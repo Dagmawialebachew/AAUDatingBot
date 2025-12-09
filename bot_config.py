@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-CHANNEL_ID = os.getenv('CHANNEL_ID', '@AAUCrushConnect')
+CHANNEL_ID = os.getenv('CHANNEL_ID', '@AAUPulse')
 ADMIN_GROUP_ID = os.getenv('ADMIN_GROUP_ID')
 SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
 SUPABASE_KEY = os.getenv('VITE_SUPABASE_ANON_KEY')

@@ -71,7 +71,6 @@ def caption_header(other_user: dict, revealed: bool) -> str:
     return f"💌 <b>Chat with {name}</b>" if revealed else "🎭 <b>Anonymous Crush Chat</b>"
 
 
-
 def build_header_keyboard(match_id: int, revealed: bool) -> InlineKeyboardMarkup:
     rows = []
 
@@ -84,12 +83,20 @@ def build_header_keyboard(match_id: int, revealed: bool) -> InlineKeyboardMarkup
             )
         ])
 
-    # Row with Unmatch + View Full Profile
+    # Row with Unmatch + Refresh
     rows.append([
         InlineKeyboardButton(
             text="❌ Unmatch",
             callback_data=f"unmatch_confirm_{match_id}"
         ),
+        InlineKeyboardButton(
+            text="🔄 Refresh",
+            callback_data=f"refresh_{match_id}"
+        )
+    ])
+
+    # Row with View Full Profile
+    rows.append([
         InlineKeyboardButton(
             text="👤 View Full Profile",
             callback_data=f"viewprofile_from_chat_{match_id}"
@@ -97,6 +104,75 @@ def build_header_keyboard(match_id: int, revealed: bool) -> InlineKeyboardMarkup
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.startswith("refresh_"))
+async def refresh_pinned_card(callback: CallbackQuery, state: FSMContext):
+    try:
+        match_id = int(callback.data.split("_")[1])
+    except Exception:
+        await callback.answer("Invalid refresh reference 💀")
+        return
+
+    user_id = callback.from_user.id
+    match_data = await get_match_data_for_chat(user_id, match_id)
+    if not match_data:
+        await callback.answer("Match not found 💀")
+        return
+
+    other_user = match_data["user"]
+    revealed = match_data["revealed"]
+
+    # Fetch latest history
+    history = await db.get_chat_history(match_id, limit=10)
+
+    # Rebuild caption like ensure_pinned_card_for_user
+    header = caption_header(other_user, revealed)
+    bubbles = []
+    for msg in history[-5:]:
+        sender_label = "🔵 Them" if msg["sender_id"] == other_user.get("id") else "🟢 You"
+        bubbles.append(bubble(sender_label, h(msg.get("message", ""))))
+    history_text = "\n".join(bubbles) if bubbles else "✨ <i>No messages yet — break the ice!</i> 💬"
+
+    caption = (
+        f"{header}\n\n"
+        f"📜 <u>Last messages</u>\n"
+        f"{history_text}\n\n"
+        f"───────────────\n\n"
+        f"💡 <i>Say hi, drop a voice note, or send a sticker — your move.</i>"
+    )
+
+    keyboard = build_header_keyboard(match_id, revealed)
+    pinned_card_id = (await state.get_data()).get("pinned_card_id")
+
+    if pinned_card_id:
+        try:
+            if other_user.get("photo_file_id") and revealed:
+                await callback.bot.edit_message_caption(
+                    chat_id=user_id,
+                    message_id=pinned_card_id,
+                    caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await callback.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=pinned_card_id,
+                    text=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            await callback.answer("🔄 Card refreshed!")
+        except Exception as e:
+            # Telegram throws "Bad Request: message is not modified" if nothing changed
+            if "message is not modified" in str(e):
+                await callback.answer("✅ Already up to date!")
+            else:
+                logger.error(f"Error refreshing card: {e}")
+                await callback.answer("⚠️ Could not refresh 💀")
+    else:
+        await callback.answer("No pinned card found 💀")
 
 
 
@@ -223,7 +299,7 @@ chat_actions_kb = ReplyKeyboardMarkup(
 def build_message_actions(match_id: int, msg_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="💬 Reply", callback_data=f"reply_{match_id}"),
+            InlineKeyboardButton(text="💬 Reply", callback_data=f"reply_{match_id}_{msg_id}"),
             InlineKeyboardButton(text="❤️", callback_data=f"react_{match_id}_heart_{msg_id}"),
             InlineKeyboardButton(text="😂", callback_data=f"react_{match_id}_laugh_{msg_id}"),
             InlineKeyboardButton(text="🔥", callback_data=f"react_{match_id}_fire_{msg_id}"),
@@ -318,7 +394,6 @@ async def ensure_pinned_card_for_user(
         return None
 
 
-
 @router.callback_query(F.data.startswith("chat_"))
 async def start_chat(callback: CallbackQuery, state: FSMContext):
     """
@@ -349,9 +424,6 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
     other_user = match_data["user"]
     revealed = match_data["revealed"]
     initiator_id = match_data.get("initiator_id")
-    print('here is intiator_id', initiator_id)
-    print('herei is user_id', user_id)
-    
 
     # Save active chat session
     active_chats[user_id] = {
@@ -359,6 +431,7 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
         "other_user_id": other_user["id"],
         "revealed": revealed,
     }
+    previous_state = await state.get_state()
     await state.update_data(active_chat=match_id)
     await state.set_state(ChatState.in_chat)
 
@@ -409,11 +482,10 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
             else:
                 interests_hint = "✨ Their interests are waiting to be revealed..."
 
-
             partial_name = other_user.get("name", "Anon")[:4] + "…"
             header = f"💌 Chat with 🎭 Anonymous — {partial_name}"
             caption = (
-                f"{header}\n\n" 
+                f"{header}\n\n"
                 "🔒 <b>Identity Hidden</b>\n\n"
                 f"{interests_hint}\n"
                 "🙈 <i>Photo blurred until reveal...</i>\n\n\n"
@@ -425,41 +497,93 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
     # --- Build keyboard ---
     keyboard = build_header_keyboard(match_id, revealed)
 
-    # --- Clean previous message ---
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    # --- Prefer graceful edit of existing pinned card; fallback to delete+send if none ---
+    data = await state.get_data()
+    pinned_card_id = data.get("pinned_card_id")
 
-    # --- Send chat entry ---
-    if revealed and other_user.get("photo_file_id"):
-        sent = await callback.message.answer_photo(
-            photo=other_user["photo_file_id"],
-            caption=caption,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
-    else:
-        sent = await callback.message.answer(
-            caption,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
-
-    # Pin message only if revealed
-    if revealed:
+    if pinned_card_id:
         try:
-            await sent.pin(disable_notification=True)
+            # If the pinned card has a photo (revealed with photo), edit caption; otherwise edit text
+            if revealed and other_user.get("photo_file_id"):
+                await callback.bot.edit_message_caption(
+                    chat_id=user_id,
+                    message_id=pinned_card_id,
+                    caption=caption + "\n\n🔙 Back to chat view…",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await callback.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=pinned_card_id,
+                    text=caption + "\n\n🔙 Back to chat view…",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+        except Exception as e:
+            logger.error(f"Error editing chat card: {e}")
+            # Fallback to previous behavior if edit fails
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            if revealed and other_user.get("photo_file_id"):
+                sent = await callback.message.answer_photo(
+                    photo=other_user["photo_file_id"],
+                    caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                sent = await callback.message.answer(
+                    caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            if revealed:
+                try:
+                    await sent.pin(disable_notification=True)
+                except Exception:
+                    pass
+                pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
+                await state.update_data(pinned_card_id=sent.message_id)
+    else:
+        # --- Clean previous message ---
+        try:
+            await callback.message.delete()
         except Exception:
             pass
-        pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
-        await state.update_data(pinned_card_id=sent.message_id)
+
+        # --- Send chat entry ---
+        if revealed and other_user.get("photo_file_id"):
+            sent = await callback.message.answer_photo(
+                photo=other_user["photo_file_id"],
+                caption=caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            sent = await callback.message.answer(
+                caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+        # Pin message only if revealed
+        if revealed:
+            try:
+                await sent.pin(disable_notification=True)
+            except Exception:
+                pass
+            pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
+            await state.update_data(pinned_card_id=sent.message_id)
 
     # --- Enter chat mode ---
-    await callback.message.answer(
-        "💬 You’re now in chat mode. Type or send a voice note!",
-        reply_markup=chat_actions_kb
-    )
+    if previous_state != ChatState.in_chat.state:
+        await callback.message.answer(
+            "💬 You’re now in chat mode. Type or send a voice note!",
+            reply_markup=chat_actions_kb
+        )
 
     await callback.answer()
 
@@ -514,15 +638,9 @@ async def leave_chat_via_button(message: Message, state: FSMContext):
         "👋 Back to your crushes list!",
         reply_markup=get_crush_dashboard_keyboard()
     )
-# ---------- Message handling (text/voice/photo/sticker) ----------
 
 @router.message(ChatState.in_chat)
 async def handle_chat_message(message: Message, state: FSMContext):
-    """
-    Handle text and voice/media, save them, notify the other user threaded
-    under THEIR pinned header, attach reply/reaction buttons, and show subtle sent confirmations.
-    Also detect native Telegram replies (reply_to_message_id) to make it feel natural.
-    """
     user_id = message.from_user.id
     if user_id not in active_chats:
         await message.answer("No active chat. Use /leave_chat to go back to menu.")
@@ -539,14 +657,12 @@ async def handle_chat_message(message: Message, state: FSMContext):
             await message.answer("Message too long! Keep it under 1000 characters 💀")
             return
         content_text = message.text
-
     elif message.voice:
         content_text = "[voice message]"
-
     else:
-    # Reject unsupported types with playful tone
         await message.answer(random.choice(REJECTION_MESSAGES))
         return
+
     # Persist
     success = await db.save_chat_message(match_id, user_id, content_text)
     if not success:
@@ -556,18 +672,13 @@ async def handle_chat_message(message: Message, state: FSMContext):
     # Build outgoing bubble
     sender_user = await db.get_user(user_id)
     sender_name = h(sender_user["name"]) if chat["revealed"] else "Anonymous 🎭"
-
-    if message.text:
-        content_view = h(message.text)
-    elif message.voice:
-        content_view = "🎙️ Voice message"
-    elif message.photo:
-        content_view = "📷 Photo"
-    elif message.sticker:
-        content_view = "🌟 Sticker"
-    else:
-        content_view = "📎 Attachment"
-
+    content_view = (
+        h(message.text) if message.text else
+        "🎙️ Voice message" if message.voice else
+        "📷 Photo" if message.photo else
+        "🌟 Sticker" if message.sticker else
+        "📎 Attachment"
+    )
     notification = bubble(f"💬 {sender_name}", content_view)
 
     # Ensure receiver has pinned card
@@ -593,26 +704,34 @@ async def handle_chat_message(message: Message, state: FSMContext):
         receiver_history,
     )
 
+    # --- check if this message is a reply ---
+    data = await state.get_data()
+    logger.info(f"FSM data before send: {data}")
+    reply_to_msg_id = data.get("reply_to_msg_id")
+    reply_to_chat_id = data.get("reply_to_chat_id")
+
     kwargs = {"parse_mode": ParseMode.HTML}
-    if receiver_pinned_id:
+    quoted_text = ""
+
+    if reply_to_msg_id:
+        original = message_map.get(match_id, {}).get(reply_to_msg_id)
+        if original and original.get("text"):
+            quoted_text = f"🔁 Replying to: {h(original['text'])}\n\n"
+
+    # only set reply_to_message_id if sending into the same chat
+    if message.chat.id == other_user_id and reply_to_msg_id:
+        kwargs["reply_to_message_id"] = reply_to_msg_id
+    elif receiver_pinned_id:
         kwargs["reply_to_message_id"] = receiver_pinned_id
+
+    notification = quoted_text + notification
 
     # Send media or text
     try:
         if message.voice:
-            sent = await message.bot.send_voice(
-                other_user_id,
-                voice=message.voice.file_id,
-                caption=notification,
-                **kwargs,
-            )
+            sent = await message.bot.send_voice(other_user_id, voice=message.voice.file_id, caption=notification, **kwargs)
         elif message.photo:
-            sent = await message.bot.send_photo(
-                other_user_id,
-                photo=message.photo[-1].file_id,
-                caption=notification,
-                **kwargs,
-            )
+            sent = await message.bot.send_photo(other_user_id, photo=message.photo[-1].file_id, caption=notification, **kwargs)
         elif message.sticker:
             await message.bot.send_sticker(other_user_id, message.sticker.file_id)
             sent = await message.bot.send_message(other_user_id, notification, **kwargs)
@@ -621,17 +740,19 @@ async def handle_chat_message(message: Message, state: FSMContext):
 
         # Build inline keyboard AFTER sending
         actions_kb = build_message_actions(match_id, sent.message_id)
-        await message.bot.edit_message_reply_markup(
-            chat_id=other_user_id,
-            message_id=sent.message_id,
-            reply_markup=actions_kb
-        )
+        await message.bot.edit_message_reply_markup(chat_id=other_user_id, message_id=sent.message_id, reply_markup=actions_kb)
 
-        # Track message for reactions
-        msg_map = message_map.setdefault(other_user_id, {})
-        msg_map[sent.message_id] = {"match_id": match_id, "sender_id": user_id}
+        # ✅ Track message for reactions and replies keyed by match_id
+        msg_map = message_map.setdefault(match_id, {})
+        msg_map[sent.message_id] = {"sender_id": user_id, "text": content_text}
+        logger.info(f"Built actions for match {match_id}, receiver_msg_id={sent.message_id}")
+        logger.info(f"Replying with reply_to_message_id={reply_to_msg_id} in chat {other_user_id}")
 
-        # 🎬 NEW: subtle confirmation back to sender
+        # clear reply_to only after successful send
+        if reply_to_msg_id:
+            await state.update_data(reply_to_msg_id=None, reply_to_chat_id=None)
+
+        # 🎬 subtle confirmation back to sender
         to_user = await db.get_user(other_user_id)
         to_name = to_user.get("name", "them")
         confirmation = random.choice(sent_confirmation_variants(to_name))
@@ -641,17 +762,13 @@ async def handle_chat_message(message: Message, state: FSMContext):
         logger.error(f"Could not notify other user: {e}")
 
 
-
-# ---------- Inline reply and reactions ----------
 @router.callback_query(F.data.startswith("reply_"))
 async def inline_reply_click(callback: CallbackQuery, state: FSMContext):
-    """
-    When user taps 💬 Reply under a received message,
-    drop them into full chat mode with pinned header + back button.
-    """
     user_id = callback.from_user.id
     try:
-        match_id = int(callback.data.split("reply_")[1])
+        _, match_id_str, replied_msg_id_str = callback.data.split("_", 2)
+        match_id = int(match_id_str)
+        replied_msg_id = int(replied_msg_id_str)
     except Exception:
         await callback.answer("Invalid reply reference 💀")
         return
@@ -672,7 +789,13 @@ async def inline_reply_click(callback: CallbackQuery, state: FSMContext):
         "revealed": revealed,
     }
     await state.set_state(ChatState.in_chat)
-    await state.update_data(active_chat=match_id)
+
+    # ✅ store both message_id and chat_id for reply
+    await state.update_data(
+        active_chat=match_id,
+        reply_to_msg_id=replied_msg_id,
+        reply_to_chat_id=user_id  # the chat where this message exists
+    )
 
     # Ensure pinned card exists for this user
     history = await db.get_chat_history(match_id, limit=10)
@@ -693,15 +816,16 @@ async def inline_reply_click(callback: CallbackQuery, state: FSMContext):
         resize_keyboard=True
     )
 
-    # Playful entry prompt
     await callback.message.answer(
         "💬 Reply mode on — type something sweet or drop a voice note 🎙️",
         reply_markup=back_to_crushes_kb
     )
+    logger.info(f"Reply click: match_id={match_id}, replied_msg_id={replied_msg_id}")
 
     await callback.answer()
 
 
+# ---------- Reactions ----------
 @router.callback_query(F.data.startswith("react_"))
 async def react_to_message(callback: CallbackQuery):
     try:
@@ -714,23 +838,37 @@ async def react_to_message(callback: CallbackQuery):
 
     emoji = {"heart": "❤️", "laugh": "😂", "fire": "🔥"}.get(emoji_key, "✨")
 
-    # Look up original sender from your message_map or DB
-    msg_map = message_map.get(callback.from_user.id, {})
-    sender_id = msg_map.get(msg_id, {}).get("sender_id")
+    # Look up original sender + text from message_map keyed by match_id
+    msg_map = message_map.get(match_id, {})
+    original = msg_map.get(msg_id)
 
-    if sender_id:
-    # Get the user who reacted
-        reacting_user = await db.get_user(callback.from_user.id)
-        reacting_name = reacting_user.get("name", "Someone")  # fallback
+    if original:
+        sender_id = original.get("sender_id")
+        original_text = original.get("text", "")
 
-        await callback.bot.send_message(
-            sender_id,
-            f"{emoji} {reacting_name} reacted to your message!"
-        )
+        if sender_id:
+            # Get the user who reacted
+            reacting_user = await db.get_user(callback.from_user.id)
+            reacting_name = reacting_user.get("name", "Someone")  # fallback
+
+            # Build cinematic reaction notification
+            if original_text:
+                reaction_msg = (
+                    f"{emoji} {reacting_name} reacted to your message\n"
+                    f"───────────────\n"
+                    f"💬 {h(original_text)}"
+                )
+            else:
+                reaction_msg = (
+                    f"{emoji} {reacting_name} reacted to your message\n"
+                    f"───────────────\n"
+                    f"✨ (no text content)"
+                )
+
+            await callback.bot.send_message(sender_id, reaction_msg, parse_mode="HTML")
 
 
     await callback.answer(f"{emoji} Reacted", show_alert=False)
-
 
 # ---------- Navigation ----------
 

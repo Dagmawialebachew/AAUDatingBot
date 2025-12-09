@@ -163,7 +163,7 @@ async def handle_purchase(callback: CallbackQuery):
     benefit_text = ""
     if choice == "buy_likes":
         # Increment daily_likes_bonus safely
-        await db.increment_field(user_id, "daily_likes_bonus", 1)
+        await db.increment_field(user_id, "purchase", 1)
         benefit_text = "You gained +1 extra daily like for today!"
     elif choice == "buy_vibe":
         await db.update_user(user_id, {"premium_vibe_unlocked": True})

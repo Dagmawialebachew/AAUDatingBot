@@ -1,4 +1,4 @@
-# CrushConnect - Implementation Summary
+# AAUPulse - Implementation Summary
 
 ## 🎉 Project Complete!
 
@@ -47,7 +47,7 @@ A production-ready Telegram bot for Addis Ababa University students has been suc
 ### 4. Documentation Suite
 - **START_HERE.md** (10.6 KB) - Quick overview
 - **QUICKSTART.md** (4.1 KB) - 5-minute setup
-- **README_CRUSHCONNECT.md** (8.9 KB) - Full documentation
+- **README_AAUPulse.md** (8.9 KB) - Full documentation
 - **PROJECT_STRUCTURE.md** (10.5 KB) - Architecture guide
 - **DEPLOYMENT_CHECKLIST.md** (9.3 KB) - Launch checklist
 - **FEATURES.md** (12.6 KB) - Complete feature list
@@ -270,7 +270,7 @@ All notifications posted to both users and channel.
 ### 6 Comprehensive Guides
 1. **START_HERE.md** - First file to read
 2. **QUICKSTART.md** - 5-minute setup
-3. **README_CRUSHCONNECT.md** - Full manual
+3. **README_AAUPulse.md** - Full manual
 4. **PROJECT_STRUCTURE.md** - Architecture
 5. **DEPLOYMENT_CHECKLIST.md** - Launch guide
 6. **FEATURES.md** - Complete feature list
@@ -308,8 +308,8 @@ python bot.py
 
 ### 3. Docker
 ```bash
-docker build -t crushconnect .
-docker run -d --env-file .env crushconnect
+docker build -t AAUPulse .
+docker run -d --env-file .env AAUPulse
 ```
 
 ### 4. Any Docker Host
@@ -433,7 +433,7 @@ docker run -d --env-file .env crushconnect
 - [x] Documentation written
 - [x] Deployment configs ready
 - [ ] Get bot token from @BotFather
-- [ ] Create channel @AAUCrushConnect
+- [ ] Create channel @AAUAAUPulse
 - [ ] Set environment variables
 - [ ] Run verify_setup.py
 - [ ] Deploy to Render
@@ -469,7 +469,7 @@ docker run -d --env-file .env crushconnect
 
 ## 🎉 Conclusion
 
-CrushConnect is a **fully-featured, production-ready Telegram bot** designed specifically for Addis Ababa University students.
+AAUPulse is a **fully-featured, production-ready Telegram bot** designed specifically for Addis Ababa University students.
 
 **What you get:**
 - Complete dating bot with all requested features
@@ -493,7 +493,7 @@ CrushConnect is a **fully-featured, production-ready Telegram bot** designed spe
 - verify_setup.py - Automated checks
 
 **Technical Docs:**
-- README_CRUSHCONNECT.md - Full manual
+- README_AAUPulse.md - Full manual
 - PROJECT_STRUCTURE.md - Architecture
 - FEATURES.md - Feature list
 

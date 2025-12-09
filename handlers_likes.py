@@ -56,8 +56,14 @@ async def notify_like(bot, liker_id: int, liked_id: int):
     try:
         await bot.send_message(
             liked_id,
-            "👀 Someone just liked you!\n\nWant to find out who?",
-            reply_markup=liked_notification_keyboard(liker_id)
+            (
+                "👀 Someone just liked you!\n\n"
+                "To see the full list of admirers, head to:\n"
+                "👉 <b>💖 My Crushes → 👀 Who Liked Me</b>\n\n"
+                "From there you can explore who’s interested and decide your next move."
+            ),
+            reply_markup=liked_notification_keyboard(liker_id),
+            parse_mode="HTML"
         )
     except Exception as e:
         logger.warning("Could not notify %s of new like: %s", liked_id, e)
@@ -77,9 +83,8 @@ async def ignore_like_callback(callback: CallbackQuery):
 
 
 
-
 @router.callback_query(F.data.startswith("viewprofile_from_chat_"))
-async def view_profile_from_chat(callback: CallbackQuery):
+async def view_profile_from_chat(callback: CallbackQuery, state: FSMContext):
     raw = callback.data
     try:
         match_id = int(raw.split("_")[-1])
@@ -88,7 +93,7 @@ async def view_profile_from_chat(callback: CallbackQuery):
         return
 
     viewer_id = callback.from_user.id
-
+    pinned_cards: dict[int, dict[int, int]] = {}
     # Fetch match data
     match_data = await get_match_data_for_chat(viewer_id, match_id)
     if not match_data:
@@ -142,34 +147,101 @@ async def view_profile_from_chat(callback: CallbackQuery):
         ]
     ])
 
-    # Delete previous message before sending new profile
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    # --- Prefer graceful edit of existing pinned card; fallback to delete+send if none ---
+    data = await state.get_data()
+    pinned_card_id = data.get("pinned_card_id")
 
-    # Send profile
-    try:
-        if other_user.get("photo_file_id") and is_revealed:
-            await callback.message.answer_photo(
-                photo=other_user["photo_file_id"],
-                caption=profile_text,
-                reply_markup=actions_kb,
-                parse_mode=ParseMode.HTML
-            )
-        else:
+    if pinned_card_id:
+        try:
+            # If the pinned card has a photo and is revealed, edit caption; else edit text
+            if other_user.get("photo_file_id") and is_revealed:
+                await callback.bot.edit_message_caption(
+                    chat_id=viewer_id,
+                    message_id=pinned_card_id,
+                    caption=profile_text + "\n\n✨ Viewing full profile…",
+                    reply_markup=actions_kb,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await callback.bot.edit_message_text(
+                    chat_id=viewer_id,
+                    message_id=pinned_card_id,
+                    text=profile_text + "\n\n✨ Viewing full profile…",
+                    reply_markup=actions_kb,
+                    parse_mode=ParseMode.HTML
+                )
+        except Exception as e:
+            logger.error("Error editing profile card: %s", e)
+            # Fallback to previous behavior if edit fails
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            try:
+                if other_user.get("photo_file_id") and is_revealed:
+                    sent = await callback.message.answer_photo(
+                        photo=other_user["photo_file_id"],
+                        caption=profile_text,
+                        reply_markup=actions_kb,
+                        parse_mode=ParseMode.HTML
+                    )
+                else:
+                    sent = await callback.message.answer(
+                        profile_text,
+                        reply_markup=actions_kb,
+                        parse_mode=ParseMode.HTML
+                    )
+                # If we re-sent a revealed photo card, keep it pinned and update state
+                if is_revealed:
+                    try:
+                        await sent.pin(disable_notification=True)
+                    except Exception:
+                        pass
+                    pinned_cards.setdefault(viewer_id, {})[match_id] = sent.message_id
+                    await state.update_data(pinned_card_id=sent.message_id)
+            except Exception as e2:
+                logger.error("Error sending profile after edit failure: %s", e2)
+                await callback.message.answer(
+                    profile_text,
+                    reply_markup=actions_kb,
+                    parse_mode=ParseMode.HTML
+                )
+    else:
+        # Previous behavior when no pinned card tracked: delete + send
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+
+        try:
+            if other_user.get("photo_file_id") and is_revealed:
+                sent = await callback.message.answer_photo(
+                    photo=other_user["photo_file_id"],
+                    caption=profile_text,
+                    reply_markup=actions_kb,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                sent = await callback.message.answer(
+                    profile_text,
+                    reply_markup=actions_kb,
+                    parse_mode=ParseMode.HTML
+                )
+            # If we sent a revealed photo card, pin and remember its id
+            if is_revealed:
+                try:
+                    await sent.pin(disable_notification=True)
+                except Exception:
+                    pass
+                pinned_cards.setdefault(viewer_id, {})[match_id] = sent.message_id
+                await state.update_data(pinned_card_id=sent.message_id)
+        except Exception as e:
+            logger.error("Error sending profile: %s", e)
             await callback.message.answer(
                 profile_text,
                 reply_markup=actions_kb,
                 parse_mode=ParseMode.HTML
             )
-    except Exception as e:
-        logger.error("Error sending profile: %s", e)
-        await callback.message.answer(
-            profile_text,
-            reply_markup=actions_kb,
-            parse_mode=ParseMode.HTML
-        )
 
     await callback.answer()
 
@@ -337,10 +409,25 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
     else:
         if list_type == "admirers":
             actions_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❤️ Like Back", callback_data=f"likeback_{target_id}")],
-                [InlineKeyboardButton(text="❌ Ignore", callback_data=f"ignore_{target_id}")],
-                [InlineKeyboardButton(text="🔙 Back to Admirers", callback_data=f"backtolist_admirers_{page}")]
+                [
+                    InlineKeyboardButton(
+                        text="❤️ Like Back",
+                        callback_data=f"likeback_{target_id}"
+                    ),
+                    InlineKeyboardButton(
+                        text="❌ Ignore",
+                        callback_data=f"ignore_{target_id}"
+                    )
+                ],
+                
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Back to Admirers",
+                        callback_data=f"backtolist_admirers_{page}"
+                    )
+                ]
             ])
+
         elif list_type == "likes":
             actions_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="❌ Remove Like", callback_data=f"unlike_{target_id}")],
@@ -441,7 +528,7 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
 
             # Flip reveal flag in DB
             try:
-                await db._db.execute(
+                await db.conn(
                     "UPDATE matches SET revealed = TRUE WHERE id = ?",
                     (match_id,)
                 )

@@ -1,8 +1,8 @@
 /*
-  # CrushConnect Database Schema
+  # AAUPulse Database Schema
 
   ## Overview
-  Complete database schema for the CrushConnect Telegram bot serving Addis Ababa University students.
+  Complete database schema for the AAUPulse Telegram bot serving Addis Ababa University students.
   Supports profiles, matching, anonymous chat, confessions, coins/rewards, referrals, and admin functions.
 
   ## New Tables

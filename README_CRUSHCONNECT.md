@@ -1,4 +1,4 @@
-# CrushConnect Bot - AAU Campus Dating Bot
+# AAUPulse Bot - AAU Campus Dating Bot
 
 **The most viral way for Addis Ababa University students to find their match!**
 
@@ -46,11 +46,11 @@
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
 2. Send `/newbot` and follow instructions
 3. Save your bot token
-4. Set bot username to `CrushConnectBot` (or your preferred name)
+4. Set bot username to `AAUPulseBot` (or your preferred name)
 
 ### 2. Create Telegram Channel
 
-1. Create a public channel with username `@AAUCrushConnect`
+1. Create a public channel with username `@AAUAAUPulse`
 2. Add your bot as an admin with posting permissions
 3. Get channel ID (use @userinfobot or similar)
 
@@ -60,7 +60,7 @@ Update `.env` file:
 
 ```env
 BOT_TOKEN=your_bot_token_from_botfather
-CHANNEL_ID=@AAUCrushConnect
+CHANNEL_ID=@AAUAAUPulse
 ADMIN_GROUP_ID=your_telegram_user_id
 
 VITE_SUPABASE_URL=already_configured
@@ -234,7 +234,7 @@ Format:
 
 Is this about you? React with ❤️
 
-@CrushConnectBot
+@AAUPulseBot
 ```
 
 ## Error Handling
@@ -304,7 +304,7 @@ Bot speaks with:
 - Chaotic but fun vibes
 
 Examples:
-- "Yooo welcome to CrushConnect! 🔥"
+- "Yooo welcome to AAUPulse! 🔥"
 - "Bruh... upload that selfie or stay invisible 👻"
 - "No cap, this'll take like 2 minutes 💯"
 - "Time to find your match... 😏"
@@ -338,7 +338,7 @@ This is a custom bot for Addis Ababa University students. Not for commercial use
 
 **Built with 💜 for AAU students by Claude Code**
 
-**Bot Username**: @CrushConnectBot
-**Channel**: @AAUCrushConnect
+**Bot Username**: @AAUPulseBot
+**Channel**: @AAUAAUPulse
 
 Let's make campus dating less awkward! 🔥

@@ -54,7 +54,7 @@ class GracefulFallbackMiddleware(BaseMiddleware):
                 "• /start — open the main menu\n"
                 "• /help — see available commands\n"
                 "Or just tap a button below 👇",
-                reply_markup=show_main_menu(event)
+                reply_markup=await show_main_menu(event)
             )
             return None
         

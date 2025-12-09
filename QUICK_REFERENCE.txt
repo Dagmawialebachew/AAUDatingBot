@@ -1,5 +1,5 @@
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    CRUSHCONNECT - QUICK REFERENCE                    ║
+║                    AAUPulse - QUICK REFERENCE                    ║
 ║              Production-Ready Telegram Bot for AAU Students          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -12,13 +12,13 @@
    • Copy your bot token
 
 2. Create Channel:
-   • Public channel: @AAUCrushConnect
+   • Public channel: @AAUAAUPulse
    • Add bot as admin
    • Grant posting permissions
 
 3. Configure .env:
    BOT_TOKEN=your_token_here
-   CHANNEL_ID=@AAUCrushConnect
+   CHANNEL_ID=@AAUAAUPulse
    ADMIN_GROUP_ID=your_user_id
 
 4. Install & Run:
@@ -59,7 +59,7 @@ Deployment:
 Documentation:
   START_HERE.md         - Overview
   QUICKSTART.md         - Setup guide
-  README_CRUSHCONNECT.md- Full docs
+  README_AAUPulse.md- Full docs
   FEATURES.md           - Feature list
 
 ═══════════════════════════════════════════════════════════════════════
@@ -139,8 +139,8 @@ Local:
   python bot.py
 
 Docker:
-  docker build -t crushconnect .
-  docker run -d --env-file .env crushconnect
+  docker build -t AAUPulse .
+  docker run -d --env-file .env AAUPulse
 
 Render.com:
   1. Push to GitHub
@@ -195,7 +195,7 @@ Getting Started:
   3. verify_setup.py       - Check configuration
 
 Full Guides:
-  • README_CRUSHCONNECT.md - Complete manual
+  • README_AAUPulse.md - Complete manual
   • PROJECT_STRUCTURE.md   - Architecture
   • FEATURES.md            - All features
   • DEPLOYMENT_CHECKLIST.md- Launch guide
@@ -214,7 +214,7 @@ Month 3:  2000+ users, 500+ matches
 
 Pre-Launch:
   [ ] Bot token from @BotFather
-  [ ] Channel @AAUCrushConnect created
+  [ ] Channel @AAUAAUPulse created
   [ ] Bot added as channel admin
   [ ] .env file configured
   [ ] Dependencies installed
@@ -239,8 +239,8 @@ Launch:
 
 🔥 READY TO LAUNCH THE HOTTEST THING ON AAU CAMPUS! 🔥
 
-Bot: @CrushConnectBot
-Channel: @AAUCrushConnect
+Bot: @AAUPulseBot
+Channel: @AAUAAUPulse
 Docs: See START_HERE.md
 
 Built with 💜 for AAU students

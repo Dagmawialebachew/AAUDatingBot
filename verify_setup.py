@@ -3,7 +3,7 @@ import sys
 from dotenv import load_dotenv
 
 def verify_setup():
-    print("🔍 CrushConnect Setup Verification\n")
+    print("🔍 AAUPulse Setup Verification\n")
 
     load_dotenv()
 

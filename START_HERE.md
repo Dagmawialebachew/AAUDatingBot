@@ -1,10 +1,10 @@
-# 🔥 CrushConnect - START HERE 🔥
+# 🔥 AAUPulse - START HERE 🔥
 
 **The most viral campus dating bot for Addis Ababa University students!**
 
-## What is CrushConnect?
+## What is AAUPulse?
 
-CrushConnect is a full-featured Telegram bot that helps AAU students find their match through:
+AAUPulse is a full-featured Telegram bot that helps AAU students find their match through:
 - Smart profile matching
 - Anonymous chat
 - Crush confessions
@@ -25,7 +25,7 @@ Built with Python, Telegram Bot API, and Supabase database.
 4. Copy your bot token
 
 ### 2. Create Channel
-1. Create public channel: `@AAUCrushConnect`
+1. Create public channel: `@AAUAAUPulse`
 2. Add your bot as admin
 3. Give posting permissions
 
@@ -33,7 +33,7 @@ Built with Python, Telegram Bot API, and Supabase database.
 Edit `.env` file:
 ```env
 BOT_TOKEN=your_token_here
-CHANNEL_ID=@AAUCrushConnect
+CHANNEL_ID=@AAUAAUPulse
 ADMIN_GROUP_ID=your_telegram_user_id
 ```
 
@@ -80,7 +80,7 @@ python bot.py
 **Documentation:**
 - `START_HERE.md` - This file!
 - `QUICKSTART.md` - Setup guide
-- `README_CRUSHCONNECT.md` - Full docs
+- `README_AAUPulse.md` - Full docs
 - `PROJECT_STRUCTURE.md` - Architecture
 - `DEPLOYMENT_CHECKLIST.md` - Launch guide
 
@@ -220,7 +220,7 @@ Weekly leaderboard update to channel
 ## 🎨 Bot Personality
 
 Gen Z energy, campus vibes, playful & bold:
-- "Yooo welcome to CrushConnect! 🔥"
+- "Yooo welcome to AAUPulse! 🔥"
 - "Bruh... upload that selfie or stay invisible 👻"
 - "No cap, this'll take like 2 minutes 💯"
 - "Time to find your match... 😏"
@@ -238,8 +238,8 @@ python bot.py
 
 ### Docker
 ```bash
-docker build -t crushconnect .
-docker run -d --env-file .env crushconnect
+docker build -t AAUPulse .
+docker run -d --env-file .env AAUPulse
 ```
 
 ### Render.com (Recommended)
@@ -316,7 +316,7 @@ Use `verify_setup.py` to check configuration.
 ### Documentation
 
 1. **Quick Setup:** `QUICKSTART.md`
-2. **Full Documentation:** `README_CRUSHCONNECT.md`
+2. **Full Documentation:** `README_AAUPulse.md`
 3. **Architecture:** `PROJECT_STRUCTURE.md`
 4. **Deployment:** `DEPLOYMENT_CHECKLIST.md`
 
@@ -488,7 +488,7 @@ Make sure you have all these files:
 **Documentation:**
 - [x] START_HERE.md
 - [x] QUICKSTART.md
-- [x] README_CRUSHCONNECT.md
+- [x] README_AAUPulse.md
 - [x] PROJECT_STRUCTURE.md
 - [x] DEPLOYMENT_CHECKLIST.md
 - [x] verify_setup.py
@@ -514,8 +514,8 @@ Make sure you have all these files:
 
 ---
 
-**Bot Username:** @CrushConnectBot
-**Channel:** @AAUCrushConnect
+**Bot Username:** @AAUPulseBot
+**Channel:** @AAUAAUPulse
 **Built for:** Addis Ababa University Students
 **By:** World-class bot developers
 

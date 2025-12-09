@@ -102,7 +102,7 @@ async def on_startup(bot: Bot):
     #     try:
     #         await bot.send_message(
     #             ADMIN_GROUP_ID,
-    #             "🤖 CrushConnect Bot Started! 🔥\n\nAll systems operational ✅",
+    #             "🤖 AAUPulse Bot Started! 🔥\n\nAll systems operational ✅",
     #         )
     #     except Exception as e:
     #         logger.error(f"Could not send startup message to admin group: {e}")
@@ -114,7 +114,7 @@ async def on_shutdown(bot: Bot):
     await db.close()
     # if ADMIN_GROUP_ID:
     #     try:
-    #         await bot.send_message(ADMIN_GROUP_ID, "🤖 CrushConnect Bot Stopped ⏸️")
+    #         await bot.send_message(ADMIN_GROUP_ID, "🤖 AAUPulse Bot Stopped ⏸️")
     #     except Exception as e:
     #         logger.error(f"Could not send shutdown message to admin group: {e}")
     logger.info("Bot shutdown complete!")

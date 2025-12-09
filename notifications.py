@@ -35,7 +35,7 @@ async def send_daily_notifications(bot):
             try:
                 await bot.send_message(
                     user_id,
-                    f"🔔 Daily Reminder!\n\n{message}\n\nOpen CrushConnect now! 💯"
+                    f"🔔 Daily Reminder!\n\n{message}\n\nOpen AAUPulse now! 💯"
                 )
             except Exception as e:
                 # Log non-critical errors (e.g., user blocked the bot)
@@ -55,7 +55,7 @@ async def send_weekly_confession_reminder(bot):
             "💌 It's Confession Friday! 💌\n\n"
             "Drop your anonymous confessions now 🔥\n\n"
             "Who knows? Your crush might see it 👀\n\n"
-            "@CrushConnectBot"
+            "@AAUPulseBot"
         )
 
         # 2. Notify Users
@@ -86,7 +86,7 @@ async def send_weekly_match_reminder(bot):
             "😍 Blind Date Sunday! 😍\n\n"
             "Find your perfect match today! 💘\n\n"
             "Swipe, match, chat! 🔥\n\n"
-            "@CrushConnectBot"
+            "@AAUPulseBot"
         )
 
         # 2. Notify Users
@@ -138,7 +138,7 @@ async def update_weekly_leaderboard(bot):
             "Here are this week's most popular profiles:\n\n"
             + "\n".join(lines) +
             "\n\nUse /leaderboard in the bot to see the full list 👀\n\n"
-            "@CrushConnectBot"
+            "@AAUPulseBot"
         )
 
         await bot.send_message(CHANNEL_ID, text)

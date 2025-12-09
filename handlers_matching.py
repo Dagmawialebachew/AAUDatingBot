@@ -215,7 +215,7 @@ async def show_candidate(message: Message, state: FSMContext, viewer_id: int, in
 
     # --- Progress indicator ---
     total = len(candidates)
-    profile_text += f"\n\n🎬 Scene {current_index+1} of {total}- keep swiping ➡️"
+    profile_text += f"\n\n🎬 Scene {current_index+1} - keep swiping ➡️"
 
     # --- Send profile ---
     try:

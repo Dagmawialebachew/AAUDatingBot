@@ -1,4 +1,4 @@
-# CrushConnect - Deployment Checklist
+# AAUPulse - Deployment Checklist
 
 ## Pre-Deployment Setup
 
@@ -6,7 +6,7 @@
 
 - [ ] Created bot via @BotFather
 - [ ] Saved bot token
-- [ ] Set bot username (e.g., @CrushConnectBot)
+- [ ] Set bot username (e.g., @AAUPulseBot)
 - [ ] Set bot description and about text
 - [ ] Set bot profile picture (optional)
 
@@ -16,12 +16,12 @@
 Description: The hottest way for AAU students to find their match! 🔥
 
 /setabouttext @BotFather
-About: CrushConnect is the official AAU campus dating bot. Swipe, match, chat anonymously, and shoot your shot! 💘
+About: AAUPulse is the official AAU campus dating bot. Swipe, match, chat anonymously, and shoot your shot! 💘
 ```
 
 ### 2. Channel Setup
 
-- [ ] Created public channel @AAUCrushConnect
+- [ ] Created public channel @AAUAAUPulse
 - [ ] Added bot as administrator
 - [ ] Gave bot permission to post messages
 - [ ] Posted welcome message to channel
@@ -29,7 +29,7 @@ About: CrushConnect is the official AAU campus dating bot. Swipe, match, chat an
 
 **Welcome message:**
 ```
-Welcome to AAU CrushConnect! 💘
+Welcome to AAU AAUPulse! 💘
 
 This is where AAU students:
 🔥 Find their match
@@ -37,13 +37,13 @@ This is where AAU students:
 🏆 See weekly leaderboards
 😍 Discover campus crushes
 
-Start swiping: @CrushConnectBot
+Start swiping: @AAUPulseBot
 ```
 
 ### 3. Environment Variables
 
 - [ ] BOT_TOKEN - From @BotFather
-- [ ] CHANNEL_ID - @AAUCrushConnect
+- [ ] CHANNEL_ID - @AAUAAUPulse
 - [ ] ADMIN_GROUP_ID - Your Telegram user ID
 - [ ] VITE_SUPABASE_URL - Already configured
 - [ ] VITE_SUPABASE_ANON_KEY - Already configured
@@ -143,7 +143,7 @@ Start swiping: @CrushConnectBot
 ```bash
 git init
 git add .
-git commit -m "Initial CrushConnect deployment"
+git commit -m "Initial AAUPulse deployment"
 git remote add origin YOUR_GITHUB_REPO_URL
 git push -u origin main
 ```
@@ -170,7 +170,7 @@ git push -u origin main
 ```bash
 # Clone repository
 git clone YOUR_REPO_URL
-cd crushconnect-bot
+cd AAUPulse-bot
 
 # Install dependencies
 pip install -r requirements.txt
@@ -185,20 +185,20 @@ python bot.py
 
 2. **Run as Service** (systemd example)
 ```bash
-sudo nano /etc/systemd/system/crushconnect.service
+sudo nano /etc/systemd/system/AAUPulse.service
 ```
 
 Add:
 ```ini
 [Unit]
-Description=CrushConnect Telegram Bot
+Description=AAUPulse Telegram Bot
 After=network.target
 
 [Service]
 Type=simple
 User=YOUR_USER
-WorkingDirectory=/path/to/crushconnect-bot
-ExecStart=/usr/bin/python3 /path/to/crushconnect-bot/bot.py
+WorkingDirectory=/path/to/AAUPulse-bot
+ExecStart=/usr/bin/python3 /path/to/AAUPulse-bot/bot.py
 Restart=always
 
 [Install]
@@ -207,26 +207,26 @@ WantedBy=multi-user.target
 
 Enable and start:
 ```bash
-sudo systemctl enable crushconnect
-sudo systemctl start crushconnect
-sudo systemctl status crushconnect
+sudo systemctl enable AAUPulse
+sudo systemctl start AAUPulse
+sudo systemctl status AAUPulse
 ```
 
 ### Option 3: Docker
 
 ```bash
 # Build image
-docker build -t crushconnect-bot .
+docker build -t AAUPulse-bot .
 
 # Run container
 docker run -d \
-  --name crushconnect \
+  --name AAUPulse \
   --env-file .env \
   --restart unless-stopped \
-  crushconnect-bot
+  AAUPulse-bot
 
 # Check logs
-docker logs -f crushconnect
+docker logs -f AAUPulse
 ```
 
 ## Post-Deployment Tasks

@@ -1,17 +1,17 @@
-# CrushConnect - Quick Start Guide
+# AAUPulse - Quick Start Guide
 
 ## Step 1: Get Your Bot Token
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot`
-3. Choose a name: `CrushConnect`
-4. Choose a username: `CrushConnectBot` (or any available name ending in 'bot')
+3. Choose a name: `AAUPulse`
+4. Choose a username: `AAUPulseBot` (or any available name ending in 'bot')
 5. Copy the bot token (looks like: `1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ`)
 
 ## Step 2: Create Your Channel
 
 1. Create a new Telegram channel
-2. Make it public with username: `AAUCrushConnect`
+2. Make it public with username: `AAUAAUPulse`
 3. Add your bot as admin with posting permissions
 
 ## Step 3: Get Your User ID
@@ -25,7 +25,7 @@ Edit `.env` file and update:
 
 ```env
 BOT_TOKEN=paste_your_bot_token_here
-CHANNEL_ID=@AAUCrushConnect
+CHANNEL_ID=@AAUAAUPulse
 ADMIN_GROUP_ID=paste_your_user_id_here
 ```
 
@@ -103,7 +103,7 @@ Starting bot polling...
 ```bash
 git init
 git add .
-git commit -m "CrushConnect bot"
+git commit -m "AAUPulse bot"
 git remote add origin YOUR_GITHUB_REPO
 git push -u origin main
 ```
@@ -119,7 +119,7 @@ git push -u origin main
 
 ```
 BOT_TOKEN=your_bot_token
-CHANNEL_ID=@AAUCrushConnect
+CHANNEL_ID=@AAUAAUPulse
 ADMIN_GROUP_ID=your_user_id
 VITE_SUPABASE_URL=already_in_env_file
 VITE_SUPABASE_ANON_KEY=already_in_env_file
@@ -144,7 +144,7 @@ VITE_SUPABASE_ANON_KEY=already_in_env_file
 
 ## Need Help?
 
-Check the full README_CRUSHCONNECT.md for detailed documentation.
+Check the full README_AAUPulse.md for detailed documentation.
 
 Common issues:
 - Profile photo not showing? Make sure image upload succeeded

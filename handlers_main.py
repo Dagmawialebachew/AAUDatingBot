@@ -74,7 +74,7 @@ from aiogram.filters import Command
 async def help_command(message: Message):
     await message.answer(
         text=(
-            "<b>🆘 Welcome to CrushConnect Help</b>\n\n"
+            "<b>🆘 Welcome to AAUPulse Help</b>\n\n"
             "Here’s everything you can do with this bot — no fluff, just the good stuff:\n\n"
 
             "🔄 <b>Swiping</b>\n"
@@ -166,9 +166,9 @@ async def show_main_menu(message: Message, user_id: int = None):
         "💡 Tip: Swipe wisely — every like could be your next match.",
         "💡 Tip: Shared interests boost your match chances. Curate them carefully.",
         # Crushes
-        "💡 Tip: Check 'My Crushes' to see who you’ve liked — don’t leave them hanging.",
+        "💡 Tip: Check '💖 My Crushes' to see who you’ve liked — don’t leave them hanging.",
         # Likes
-        "💡 Tip: Peek at 'Who Liked Me' — your admirers might surprise you.",
+        "💡 Tip: Peek at '👀 Who Liked Me' — your admirers might surprise you.",
         # Confessions
         "💡 Tip: Post a Crush Confession anonymously and see if sparks fly.",
         # Leaderboard

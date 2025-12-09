@@ -1,9 +1,9 @@
-# CrushConnect - Project Structure
+# AAUPulse - Project Structure
 
 ## File Organization
 
 ```
-crushconnect-bot/
+AAUPulse-bot/
 ├── Core Bot Files
 │   ├── bot.py                      # Main bot entry point, starts polling
 │   ├── bot_config.py              # All configuration constants
@@ -31,7 +31,7 @@ crushconnect-bot/
 │   └── .gitignore               # Git ignore patterns
 │
 └── Documentation
-    ├── README_CRUSHCONNECT.md    # Full documentation
+    ├── README_AAUPulse.md    # Full documentation
     ├── QUICKSTART.md            # Quick setup guide
     ├── PROJECT_STRUCTURE.md     # This file
     └── verify_setup.py          # Setup verification script
@@ -410,8 +410,8 @@ python bot.py
 
 ### Docker
 ```bash
-docker build -t crushconnect .
-docker run -d --env-file .env crushconnect
+docker build -t AAUPulse .
+docker run -d --env-file .env AAUPulse
 ```
 
 ### Render.com

@@ -1,5 +1,5 @@
 ╔══════════════════════════════════════════════════════════════════════╗
-║                 CRUSHCONNECT - FILE MANIFEST                         ║
+║                 AAUPulse - FILE MANIFEST                         ║
 ║                    All Project Files (25 Total)                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -28,7 +28,7 @@ Total Python Code: ~75.2 KB (6,500+ lines)
 
 START_HERE.md            10.6 KB   Project overview & quick start
 QUICKSTART.md             4.1 KB   5-minute setup guide
-README_CRUSHCONNECT.md    8.9 KB   Complete documentation
+README_AAUPulse.md    8.9 KB   Complete documentation
 PROJECT_STRUCTURE.md     10.5 KB   Architecture & design
 DEPLOYMENT_CHECKLIST.md   9.3 KB   Launch preparation guide
 FEATURES.md              12.6 KB   Complete feature list
@@ -216,7 +216,7 @@ QUICKSTART.md
   • Environment config
   • Testing checklist
 
-README_CRUSHCONNECT.md
+README_AAUPulse.md
   • Complete documentation
   • All features explained
   • User flow diagrams
@@ -314,7 +314,7 @@ For Setup:
 For Understanding:
   1. FEATURES.md           (what it does)
   2. PROJECT_STRUCTURE.md  (how it works)
-  3. README_CRUSHCONNECT.md(full details)
+  3. README_AAUPulse.md(full details)
 
 For Launch:
   1. DEPLOYMENT_CHECKLIST.md (launch prep)

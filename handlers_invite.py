@@ -45,12 +45,13 @@ async def referral_system(message: Message):
             InlineKeyboardButton(
                 text="🔗 Share Link",
                 switch_inline_query=(
-                    "🔥 Yo! I’m on CrushConnect 🔥\n\n"
-                    "The ONLY place where AAU students shoot their shot 😏\n"
-                    "Find your vibe, match with your friend, crush, and maybe even start a campus love story 💕\n\n"
-                    f"👉 Join through my link and let’s vibe together:\n{referral_link}\n\n"
-                    "Don’t sleep on this — your match might already be waiting 👀"
-                )
+    "🔥 I’m on AAUPulse — the heartbeat of campus love 🔥\n\n"
+    "It’s where AAU students shoot their shot 😏\n"
+    "Swipe your vibe. Match your crush. Start your story 💕\n\n"
+    f"👉 Join through my link and let’s vibe together:\n{referral_link}\n\n"
+    "Your match might already be waiting 👀 Don’t sleep on it."
+)
+
             )
         ]
     ])
@@ -110,12 +111,13 @@ async def share_referral_link(message: Message):
     referral_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
 
     text = (
-        "🔥 <b>Yo! I’m on CrushConnect</b> 🔥\n\n"
-        "The ONLY place where AAU students shoot their shot 😏\n"
-        "Find your vibe, match with your friend, crush, and maybe even start a campus love story 💕\n\n"
-        f"👉 Join through my link and let’s vibe together:\n{referral_link}\n\n"
-        "Don’t sleep on this — your match might already be waiting 👀"
-    )
+    "🔥 I’m on AAUPulse — the heartbeat of campus love 🔥\n\n"
+    "It’s where AAU students shoot their shot 😏\n"
+    "Swipe your vibe. Match your crush. Start your story 💕\n\n"
+    f"👉 Join through my link and let’s vibe together:\n{referral_link}\n\n"
+    "Your match might already be waiting 👀 Don’t sleep on it."
+)
+
 
     # Send the cinematic invite text back to the user so they can forward it
     await message.answer(

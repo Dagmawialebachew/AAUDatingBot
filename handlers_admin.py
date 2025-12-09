@@ -2,6 +2,7 @@
 # Unified, paste-ready admin panel with FSM, pagination, broadcast,
 # and fully integrated ban/unban flows (with templates, notes, and unban requests).
 
+import random
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (
@@ -16,7 +17,7 @@ from aiogram.enums import ParseMode
 import logging
 from datetime import date
 
-from bot_config import ADMIN_GROUP_ID, CHANNEL_ID
+from bot_config import ADMIN_GROUP_ID, CHANNEL_ID, COIN_REWARDS
 from database import db
 
 logger = logging.getLogger(__name__)
@@ -167,39 +168,62 @@ async def admin_confessions_menu(message: Message):
     )
     await message.answer(text, reply_markup=get_confessions_panel(confession['id']))
 
+
+
+
 @router.callback_query(F.data.startswith("approve_conf_"))
 async def approve_confession(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         return await callback.answer("⛔️ Admin only!")
+
     confession_id = int(callback.data.split("_")[-1])
     confession = await db.get_confession(confession_id)
+    from handlers_confession import CONFESSION_TEMPLATES
     if not confession:
         return await callback.answer("Confession not found 💀")
 
-    channel_text = (
-        f"💌 Anonymous Confession 💌\n\n"
-        f"📍 Campus: {confession.get('campus', 'AAU')}\n"
-        f"📚 Department: {confession.get('department', 'Unknown')}\n\n"
-        f"{confession['text']}\n\n"
-        f"Is this about you? React with ❤️\n\n"
-        f"@CrushConnectBot"
+    campus = confession.get("campus", "Unknown")
+    department = confession.get("department", "Unknown")
+    text = confession["text"]
+
+    # 🔀 Pick template based on known/unknown fields
+    if campus == "Unknown" and department == "Unknown":
+        template = random.choice(CONFESSION_TEMPLATES["fully_anon"])
+    elif campus == "Unknown":
+        template = random.choice(CONFESSION_TEMPLATES["anon_campus"])
+    elif department == "Unknown":
+        template = random.choice(CONFESSION_TEMPLATES["anon_dept"])
+    else:
+        template = random.choice(CONFESSION_TEMPLATES["known"])
+
+    channel_text = template.format(
+        id=confession_id,
+        campus=campus,
+        department=department,
+        text=text
     )
+
     try:
         sent = await callback.bot.send_message(CHANNEL_ID, channel_text)
-        await db.update_confession_status(confession_id, 'approved', sent.message_id)
-        await callback.answer("✅ Approved & posted!")
+        await db.update_confession_status(confession_id, "approved", sent.message_id)
+
+        # 🪙 Add coins after approval
+        reward = COIN_REWARDS.get("confession", 5)
+        try:
+            await db.add_coins(confession["sender_id"], reward)
+            # Notify user privately
+            await callback.bot.send_message(
+                confession["sender_id"],
+                f"✅ Your confession #{confession_id} was approved!\n\n"
+                f"🪙 +{reward} coins have been added to your balance."
+            )
+        except Exception as e:
+            logger.warning(f"Could not add coins or notify user: {e}")
+
+        await callback.answer("✅ Approved, posted & rewarded!")
     except Exception as e:
         logger.error(f"Error posting confession: {e}")
         await callback.answer("Failed to post 💀")
-
-@router.callback_query(F.data.startswith("reject_conf_"))
-async def reject_confession(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        return await callback.answer("⛔️ Admin only!")
-    confession_id = int(callback.data.split("_")[-1])
-    await db.update_confession_status(confession_id, 'rejected')
-    await callback.answer("❌ Rejected")
-
 
 # --- Stats Panel ---
 @router.message(F.text == "📊 Stats")
