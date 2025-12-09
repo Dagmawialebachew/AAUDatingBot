@@ -242,6 +242,75 @@ async def admin_stats(message: Message):
     await message.answer(text, reply_markup=get_admin_main_menu())
 
 
+
+REJECT_REASONS = {
+    "spam": "❌ Your confession was rejected because it looked like spam or irrelevant content.",
+    "offensive": "❌ Your confession contained offensive or inappropriate language.",
+    "duplicate": "❌ Your confession was rejected because it was a duplicate of an earlier one.",
+    "low_quality": "❌ Your confession didn’t meet the quality guidelines (too short, unclear, etc.).",
+    "other": "❌ Your confession was rejected by the admins."
+}
+
+
+
+@router.callback_query(F.data.startswith("reject_conf_"))
+async def reject_confession(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("⛔️ Admin only!")
+
+    confession_id = int(callback.data.split("_")[-1])
+    confession = await db.get_confession(confession_id)
+    if not confession:
+        return await callback.answer("Confession not found 💀")
+
+    # Update DB status
+    await db.update_confession_status(confession_id, "rejected")
+
+    # Build reason keyboard
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🚫 Spam", callback_data=f"reject_reason_spam_{confession_id}"),
+            InlineKeyboardButton(text="🗑 Offensive", callback_data=f"reject_reason_offensive_{confession_id}")
+        ],
+        [
+            InlineKeyboardButton(text="📋 Duplicate", callback_data=f"reject_reason_duplicate_{confession_id}"),
+            InlineKeyboardButton(text="⚠️ Low Quality", callback_data=f"reject_reason_low_quality_{confession_id}")
+        ],
+        [InlineKeyboardButton(text="❓ Other", callback_data=f"reject_reason_other_{confession_id}")]
+    ])
+
+    await callback.message.edit_text(
+        f"❌ Confession #{confession_id} rejected.\n\nPick a reason to notify the user:",
+        reply_markup=kb
+    )
+    await callback.answer("Marked as rejected")
+
+
+@router.callback_query(F.data.startswith("reject_reason_"))
+async def reject_reason(callback: CallbackQuery):
+    parts = callback.data.split("_")
+    reason_key = parts[2]
+    confession_id = int(parts[-1])
+
+    confession = await db.get_confession(confession_id)
+    if not confession:
+        return await callback.answer("Confession not found 💀")
+
+    reason_text = REJECT_REASONS.get(reason_key, REJECT_REASONS["other"])
+
+    try:
+        await callback.bot.send_message(
+            confession["sender_id"],
+            f"{reason_text}\n\nConfession #{confession_id}."
+        )
+    except Exception as e:
+        logger.warning(f"Could not notify user of rejection: {e}")
+
+    await callback.message.edit_text(
+        f"❌ Confession #{confession_id} rejected and user notified.\nReason: {reason_key}"
+    )
+    await callback.answer("User notified ✅")
+
 # --- Broadcast with FSM & confirmation ---
 @router.message(F.text == "📢 Broadcast")
 async def broadcast_prompt(message: Message, state: FSMContext):
