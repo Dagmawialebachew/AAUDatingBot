@@ -8,6 +8,7 @@ from datetime import datetime, date, timedelta
 
 from dotenv import load_dotenv
 
+from services.match_classifier import classify_match
 from utils import calculate_vibe_compatibility, recency_score
 
 # Configure logging
@@ -30,13 +31,26 @@ class Database:
         if not self.dsn:
             raise ValueError("POSTGRES_DSN not set in environment or passed to Database.")
         self._pool: asyncpg.Pool | None = None
+        
+    
+    @property
+    def pool(self):
+        if not self._pool:
+            raise RuntimeError("Database not connected yet")
+        return self._pool
 
-    async def connect(self):
-        """Initializes the database pool and creates tables if they don't exist."""
+    async def connect(self, reset: bool = False):
+        """
+        Initializes the database pool and creates tables.
+        If reset=True, drops existing schema before re-initializing.
+        """
         try:
             self._pool = await asyncpg.create_pool(dsn=self.dsn, min_size=1, max_size=10)
             async with self._pool.acquire() as conn:
-                await conn.execute("SET TIME ZONE 'UTC'")  # optional
+                await conn.execute("SET TIME ZONE 'UTC'")
+                if reset:
+                    logger.warning("⚠️ Resetting database schema...")
+                    await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
                 await self._initialize_db(conn)
             logger.info("Database pool created and tables initialized.")
         except Exception as e:
@@ -72,6 +86,39 @@ class Database:
                 last_active TIMESTAMP DEFAULT NOW()
             );
         """)
+        
+        # --- Match Queue Table --- #
+        await conn.execute("""
+
+            CREATE TABLE IF NOT EXISTS match_queue (
+                    id SERIAL PRIMARY KEY,
+                    match_id INTEGER NOT NULL,
+                    user1_id BIGINT NOT NULL,
+                    user2_id BIGINT NOT NULL,
+
+                    campus1 TEXT,
+                    campus2 TEXT,
+                    department1 TEXT,
+                    department2 TEXT,
+                    year1 TEXT,
+                    year2 TEXT,
+
+                    interests JSONB,
+                    vibe_score FLOAT,
+                    special_type TEXT,
+
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    next_post_time TIMESTAMP,
+                    sent BOOLEAN DEFAULT FALSE,
+                    sent_at TIMESTAMP,
+
+                    error TEXT DEFAULT NULL,
+                    admin_notes TEXT DEFAULT NULL
+                );
+
+           
+
+            """)
 
         # --- Likes Table ---
         await conn.execute("""
@@ -480,58 +527,134 @@ class Database:
         except Exception as e:
             logger.error(f"Error setting interests for user {user_id}: {e}")
 
-    async def add_like(self, liker_id: int, liked_id: int) -> dict:
+    from services.match_classifier import classify_match
+
+    # small helper to compute next_post_time (naive local time)
+    
+
+
+    async def add_like(self, liker_id: int, liked_id: int, bot=None) -> dict:
+        """
+        Extended add_like:
+        - registers likes
+        - detects mutual like
+        - creates match
+        - classifies match
+        - QUEUES special matches via MatchQueueService
+        """
+
         try:
-            # Insert like (ignore if already exists)
+            # ----------------------------------------------------
+            # INSERT LIKE (idempotent)
+            # ----------------------------------------------------
             await self.execute(
                 "INSERT INTO likes (liker_id, liked_id) VALUES ($1, $2) "
                 "ON CONFLICT (liker_id, liked_id) DO NOTHING",
                 liker_id, liked_id
             )
 
-            # Check reverse like (did the other person already like you?)
+            # ----------------------------------------------------
+            # CHECK REVERSE LIKE (mutual)
+            # ----------------------------------------------------
             reverse_like = await self.fetchrow(
                 "SELECT id FROM likes WHERE liker_id = $1 AND liked_id = $2",
                 liked_id, liker_id
             )
 
-            if reverse_like:
-                # Find initiator (earliest like between the two)
-                row = await self.fetchrow(
-                    """
-                    SELECT liker_id
-                    FROM likes
-                    WHERE (liker_id = $1 AND liked_id = $2)
-                       OR (liker_id = $3 AND liked_id = $4)
-                    ORDER BY id ASC
-                    LIMIT 1
-                    """,
-                    liker_id, liked_id, liked_id, liker_id
-                )
-                initiator_id = row["liker_id"] if row else liker_id
-
-                user1_id = min(liker_id, liked_id)
-                user2_id = max(liker_id, liked_id)
-
-                row = await self.fetchrow(
-                    "INSERT INTO matches (user1_id, user2_id, initiator_id) "
-                    "VALUES ($1, $2, $3) RETURNING id",
-                    user1_id, user2_id, initiator_id
-                )
-                match_id = row["id"]
-
-                # Don’t reward coins here — let celebrate_match handle it
+            if not reverse_like:
                 await self.update_leaderboard_cache()
-                return {"status": "match", "match_id": match_id}
+                return {"status": "liked"}  # one-sided like → done
 
-            # If no reverse like, just a one‑sided like
+            # ----------------------------------------------------
+            # MUTUAL LIKE → CREATE MATCH
+            # ----------------------------------------------------
+            row = await self.fetchrow(
+                """
+                SELECT liker_id
+                FROM likes
+                WHERE (liker_id = $1 AND liked_id = $2)
+                OR (liker_id = $3 AND liked_id = $4)
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                liker_id, liked_id, liked_id, liker_id
+            )
+            initiator_id = row["liker_id"] if row else liker_id
+
+            user1_id = min(liker_id, liked_id)
+            user2_id = max(liker_id, liked_id)
+
+            match_row = await self.fetchrow(
+                "INSERT INTO matches (user1_id, user2_id, initiator_id) "
+                "VALUES ($1,$2,$3) RETURNING id",
+                user1_id, user2_id, initiator_id
+            )
+            match_id = match_row["id"]
+
+            # ----------------------------------------------------
+            # COLLECT USER PROFILES + INTERESTS
+            # ----------------------------------------------------
+            user1 = await self.get_user(user1_id)
+            user2 = await self.get_user(user2_id)
+
+            interests1 = await self.get_user_interests(user1_id)
+            interests2 = await self.get_user_interests(user2_id)
+
+            # ----------------------------------------------------
+            # VIBE SCORE (JSON)
+            # ----------------------------------------------------
+            try:
+                vibe1 = json.loads(user1.get("vibe_score", "{}") or "{}")
+            except:
+                vibe1 = {}
+
+            try:
+                vibe2 = json.loads(user2.get("vibe_score", "{}") or "{}")
+            except:
+                vibe2 = {}
+
+            try:
+                from utils import calculate_vibe_compatibility
+                vibe_score = calculate_vibe_compatibility(vibe1, vibe2) or 0.0
+            except:
+                vibe_score = 0.0
+
+            # ----------------------------------------------------
+            # CLASSIFY MATCH
+            # ----------------------------------------------------
+            special_type, shared_interests, vibe_score = classify_match(
+                user1, user2, interests1, interests2, vibe_score
+            )
+
+            # ----------------------------------------------------
+            # DECIDE IF THIS MATCH SHOULD BE QUEUED
+            # ----------------------------------------------------
+            should_queue = bool(special_type) or (random.random() < 0.10)
+            from services.match_queue_service import MatchQueueService
+
+
+            if should_queue:
+                # use the official queueing service
+                queue_service = MatchQueueService(self, bot)
+
+                await queue_service.queue_match(
+                    match={"id": match_id},
+                    user1=user1,
+                    user2=user2,
+                    special_type=special_type,
+                    vibe_score=vibe_score,
+                    interests=shared_interests
+                )
+
+            # DO NOT reward coins here
             await self.update_leaderboard_cache()
-            return {"status": "liked"}
+
+            return {"status": "match", "match_id": match_id}
 
         except Exception as e:
             logger.error(f"Error adding like from {liker_id} to {liked_id}: {e}")
             return {"status": "error"}
-
+        
     async def get_user_stats(self, user_id: int) -> Dict:
         stats = {'likes_sent': 0, 'likes_received': 0, 'matches': 0, 'referrals': 0}
         try:

@@ -159,16 +159,27 @@ async def format_profile_text(
         # Optional username if full mode
         if show_full and user.get("username"):
             username = hd.quote(user["username"])
-            text += f"\n📱 @{username}"
+            # text += f"\n📱 @{username}"
 
     # ---------- ANONYMOUS ----------
     else:
-        tease_interests = random.sample(candidate_interests or [], min(2, len(candidate_interests or [])))
-        if tease_interests:
-            interests_hint = "✨ They might be into " + " & ".join(tease_interests)
+        viewer_interests = viewer_interests or []
+        candidate_interests = candidate_interests or []
+       
+        shared = list(set(candidate_interests) & set(viewer_interests))
+        if shared:
+            # show overlap
+            chosen = random.sample(shared, min(2, len(shared)))
+            interests_hint = "✨ You both vibe with " + " & ".join(chosen)
         else:
-            interests_hint = "✨ Their interests are waiting to be revealed..."
-
+            # fallback to candidate’s own interests
+            tease_interests = random.sample(candidate_interests or [], min(2, len(candidate_interests or [])))
+            if tease_interests:
+                interests_hint = "✨ They might be into " + " & ".join(tease_interests)
+            else:
+                interests_hint = "✨ Their interests are waiting to be revealed..."
+                
+                
         text = (
             "🔒 <b>Identity Hidden</b>\n"
             f"🎓 {year}, {campus}\n"

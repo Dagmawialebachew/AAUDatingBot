@@ -946,9 +946,7 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
 
     # If skipped, interests = []
     interests = data.get("interests", []) if callback.data == "interests_done" else []
-    if interests:
-        await db.set_user_interests(user_id, interests)
-
+   
     # Create user
     user_data = {
         'id': user_id,
@@ -969,6 +967,8 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
     if success:
         # --- Personalized teaser if interests chosen ---
         if interests:
+            await db.set_user_interests(user_id, interests)
+
             chosen = random.choice(interests)
             query = """
                 SELECT COUNT(DISTINCT i.user_id) AS overlap_count
@@ -976,13 +976,13 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
                 JOIN interest_catalog ic ON i.interest_id = ic.id
                 WHERE ic.name = $1
             """
-            row = await db._db.fetchrow(query, chosen)
+            row = await db.pool.fetchrow(query, chosen)
             overlap_count = row["overlap_count"] if row else 0
 
             teaser_text = (
-                f"✨ Looks like { _format_overlap_count(overlap_count) } here also love <b>{chosen}</b>!\n\n"
-                "Your vibe is already connecting… 🔗"
-            )
+        f"✨ { _format_overlap_count(overlap_count).capitalize() } here are into <b>{chosen}</b> too!\n\n"
+        "Your vibe’s syncing fast… 🔗"
+    )
             await callback.message.answer(teaser_text, parse_mode="HTML")
 
         # --- Referral handling ---
@@ -1017,14 +1017,15 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
     f"Welcome to <b>AAUPulse</b>, {data['name']}! 🔥\n\n"
     "✨ Your vibe is live, your interests are locked.\n"
     "💰 You’re starting with <b>120 coins</b> to flex.\n\n"
-    "Now it’s time to find your first match 😏\n"
-    "👉 <b>❤️ Find Matches →</b>\n\n",
+    "Now it’s time to find your first match 😏\n\n"
+    "👉 <b>❤️ Find Matches </b>\n\n",
             parse_mode="HTML"
         )
+        await callback.message.edit_reply_markup(reply_markup=None)
 
         # Call show_main_menu with a fresh Message context
         from handlers_main import show_main_menu
-        await show_main_menu(callback.message, user_id=user_id)
+        await show_main_menu(bot = callback.bot, user_id=user_id)
 
         profile_text = await format_profile_text(
             user_data,
@@ -1042,10 +1043,10 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
         ])
 
         # Send to admin group
-        from bot import ADMIN_GROUP_ID
+        from bot_config import ADMIN_NEW_USER_GROUP_ID
         if user_data.get("photo_file_id"):
             await callback.bot.send_photo(
-                chat_id=ADMIN_GROUP_ID,
+                chat_id=ADMIN_NEW_USER_GROUP_ID,
                 photo=user_data["photo_file_id"],
                 caption=profile_text,
                 reply_markup=actions_kb,
@@ -1053,7 +1054,7 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
             )
         else:
             await callback.bot.send_message(
-                chat_id=ADMIN_GROUP_ID,
+                chat_id=ADMIN_NEW_USER_GROUP_ID,
                 text=profile_text,
                 reply_markup=actions_kb,
                 parse_mode=ParseMode.HTML
@@ -1560,31 +1561,33 @@ async def process_year_edit(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     
     # --- Interests Callbacks (Edit Flow) ---
+    
+    
 def get_edit_interest_categories_keyboard(selected: list[str]) -> InlineKeyboardMarkup:
-    """Show top-level categories with 2 per row, plus Back to Edit Profile."""
-    rows = []
+    """Top-level categories with 2 per row, plus Done/Skip row."""
+    rows: list[list[InlineKeyboardButton]] = []
     row_size = 2
 
     for i, cat in enumerate(INTEREST_CATEGORIES):
-        btn = InlineKeyboardButton(
-            text=cat["category"],
-            callback_data=f"edit_cat_{i}"
-        )
+        btn = InlineKeyboardButton(text=cat["category"], callback_data=f"edit_cat_{i}")
         if i % row_size == 0:
             rows.append([btn])
         else:
             rows[-1].append(btn)
 
-    # Single back row
+    # Action row: Done + Skip
+    rows.append([
+        InlineKeyboardButton(text="✅ Done", callback_data="edit_interests_done"),
+        InlineKeyboardButton(text="⏭️ Skip", callback_data="edit_interests_skip"),
+    ])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-
 def get_edit_interest_options_keyboard(category_idx: int, selected: list[str]) -> InlineKeyboardMarkup:
-    """Show interests inside a category, with ✅ toggles and Back button."""
+    """Interests inside a category, with ✅ toggles, plus Done/Back."""
     options = INTEREST_CATEGORIES[category_idx]["options"]
-    buttons = []
+    buttons: list[list[InlineKeyboardButton]] = []
     row_size = 2
 
     for i, opt in enumerate(options):
@@ -1595,13 +1598,20 @@ def get_edit_interest_options_keyboard(category_idx: int, selected: list[str]) -
         else:
             buttons[-1].append(btn)
 
-    # Back row
-    buttons.append([InlineKeyboardButton(text="🔙 Back to Categories", callback_data="back_to_edit_categories")])
+    # Action row: Done + Back
+    buttons.append([
+        InlineKeyboardButton(text="✅ Done", callback_data="edit_interests_done"),
+        InlineKeyboardButton(text="🔙 Back to Categories", callback_data="back_to_edit_categories"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# --- Entry points (message commands/buttons) ---
+
+@router.message(Command("edit_interests"))
 @router.message(F.text == "🎯 Edit Interests")
 async def edit_interests(message: Message, state: FSMContext):
+    """Enter edit interests mode (batch selection; save on Done)."""
     user_id = message.from_user.id
     current_interests = await db.get_user_interests(user_id)
 
@@ -1614,33 +1624,38 @@ async def edit_interests(message: Message, state: FSMContext):
     else:
         text += "<i>No interests selected yet.</i>\n\n"
 
-    text += "Choose a category to dive in 👇"
+    text += "Choose a category, toggle interests, then tap <b>✅ Done</b>."
 
     await message.answer(
         text,
         reply_markup=get_edit_interest_categories_keyboard(current_interests or []),
         parse_mode=ParseMode.HTML
     )
-    await state.update_data(interests=current_interests or [])
+    # Keep everything in memory until Done
     await state.set_state(EditProfile.editing_interests)
+    await state.update_data(interests=current_interests or [], current_category=None)
+
+
+# --- Navigation callbacks ---
 
 @router.callback_query(F.data.startswith("edit_cat_"), EditProfile.editing_interests)
 async def open_edit_category(callback: CallbackQuery, state: FSMContext):
+    """Open a category; no DB writes here."""
     idx = int(callback.data.split("_")[2])
     data = await state.get_data()
-    selected = data.get("interests", [])
+    selected = data.get("interests", []) or []
 
     summary = (
-        f"✨ <b>Selected so far ({len(selected)}/7):</b>\n" + " • " + "\n • ".join(selected) + "\n\n"
-        if selected else "✨ <i>No interests selected yet.</i>\n\n"
-    )
+        f"✨ <b>Selected so far ({len(selected)}/7):</b>\n"
+        + (" • " + "\n • ".join(selected) + "\n\n" if selected else "")
+    ) or "✨ <i>No interests selected yet.</i>\n\n"
 
     await callback.message.edit_text(
         f"{INTEREST_CATEGORIES[idx]['category']}\n\n"
         f"{summary}"
-        "Pick what resonates with you 👇",
+        "Pick what resonates with you, then tap <b>✅ Done</b> 👇",
         reply_markup=get_edit_interest_options_keyboard(idx, selected),
-        parse_mode="HTML"
+        parse_mode=ParseMode.HTML
     )
     await state.update_data(current_category=idx)
     await callback.answer()
@@ -1648,74 +1663,110 @@ async def open_edit_category(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "back_to_edit_categories", EditProfile.editing_interests)
 async def back_to_edit_categories(callback: CallbackQuery, state: FSMContext):
+    """Return to categories with live counter; still no DB write."""
     data = await state.get_data()
-    selected = data.get("interests", [])
+    selected = data.get("interests", []) or []
     await callback.message.edit_text(
-        f"🎯 Select your interests ({len(selected)}/7)\n\nChoose a category to dive in 👇",
+        f"🎯 Select your interests ({len(selected)}/7)\n\n"
+        "Toggle freely, then tap <b>✅ Done</b> to save.",
         reply_markup=get_edit_interest_categories_keyboard(selected),
         parse_mode=ParseMode.HTML
     )
+    await state.update_data(current_category=None)
     await callback.answer()
 
 
+# --- Toggle callbacks (state-only, fast) ---
+
 @router.callback_query(F.data.startswith("interest_"), EditProfile.editing_interests)
 async def toggle_interest_edit(callback: CallbackQuery, state: FSMContext):
-    """Toggle an interest on/off inside a category (with live summary + automatic DB save)."""
+    """Toggle interest in memory; save later on Done."""
     interest = callback.data.split("interest_")[1]
     data = await state.get_data()
-    selected = data.get("interests", [])
+    selected = (data.get("interests") or []).copy()
     category_idx = data.get("current_category")
     user_id = callback.from_user.id
 
     MAX_INTERESTS = 7
 
+    # Handle add/remove in memory
     if interest in selected:
         selected.remove(interest)
         action = "Removed"
     else:
         if len(selected) >= MAX_INTERESTS:
             await callback.answer(
-                f"🚫 You can only pick up to {MAX_INTERESTS} interests!\nCurate your vibe ✨",
+                f"🚦 Max {MAX_INTERESTS} interests. Curate your vibe ✨",
                 show_alert=True
             )
             return
         selected.append(interest)
         action = "Added"
 
-    # --- Update FSM state ---
+    # Update FSM only (no DB yet)
     await state.update_data(interests=selected)
 
-    # --- Save immediately to DB ---
-    try:
-        await db.set_user_interests(user_id, selected)
-    except Exception as e:
-        logger.error(f"Error saving interests for user {user_id}: {e}")
+    # Refresh current category keyboard to reflect ✅ marks
+    if category_idx is not None:
+        summary = (
+            f"✨ <b>Selected so far ({len(selected)}/{MAX_INTERESTS}):</b>\n"
+            + (" • " + "\n • ".join(selected) + "\n\n" if selected else "")
+        ) or "✨ <i>No interests selected yet.</i>\n\n"
 
-    # --- Build summary line with counter ---
-    summary = (
-        f"✨ <b>Selected so far ({len(selected)}/{MAX_INTERESTS}):</b>\n"
-        + " • " + "\n • ".join(selected) + "\n\n"
-    ) if selected else "✨ <i>No interests selected yet.</i>\n\n"
-
-    # --- Refresh the current category view with updated ✅ marks ---
-    await callback.message.edit_text(
-        f"{INTEREST_CATEGORIES[category_idx]['category']}\n\n"
-        f"{summary}"
-        "Pick what resonates with you 👇",
-        reply_markup=get_edit_interest_options_keyboard(category_idx, selected),
-        parse_mode="HTML"
-    )
+        await callback.message.edit_text(
+            f"{INTEREST_CATEGORIES[category_idx]['category']}\n\n"
+            f"{summary}"
+            "Tap <b>✅ Done</b> to save, or keep toggling 👇",
+            reply_markup=get_edit_interest_options_keyboard(category_idx, selected),
+            parse_mode=ParseMode.HTML
+        )
 
     await callback.answer(f"{action} {interest}")
 
 
-@router.message(F.text == "🎯 Edit Interests")
-async def edit_interests(message: Message, state: FSMContext):
-    await message.answer(
-        "✨ Let’s update your interests!\n\nChoose categories below:",
-        reply_markup=get_edit_interest_categories_keyboard([])
-    )
+# --- Done / Skip (single DB write, exit cleanly) ---
 
+@router.callback_query(F.data == "edit_interests_done", EditProfile.editing_interests)
+async def finish_edit_interests(callback: CallbackQuery, state: FSMContext):
+    """Persist selected interests once; return to profile editing."""
+    data = await state.get_data()
+    user_id = callback.from_user.id
+    selected = data.get("interests", []) or []
+
+    try:
+        await db.set_user_interests(user_id, selected)
+    except Exception as e:
+        logger.error(f"Error saving interests for user {user_id}: {e}")
+        await callback.answer("Could not save interests 💀", show_alert=True)
+        return
+
+    # Confirm and exit
+    await callback.message.edit_text(
+        "✅ Interests updated!\n\nReturning to profile editing…",
+        parse_mode=ParseMode.HTML,
+        reply_markup=None
+    )
+    await state.clear()
+
+    # Bring user back to profile editing menu (or main menu)
+    from handlers_main import show_main_menu
+    await show_main_menu(callback.message, user_id=user_id)
+    await callback.answer("Saved ✅")
+
+
+@router.callback_query(F.data == "edit_interests_skip", EditProfile.editing_interests)
+async def skip_edit_interests(callback: CallbackQuery, state: FSMContext):
+    """Discard changes; return to profile editing."""
+    await callback.message.edit_text(
+        "⏭️ Skipped. No changes made.\n\nReturning to profile editing…",
+        parse_mode=ParseMode.HTML,
+        reply_markup=None
+    )
+    await state.clear()
+
+    from handlers_main import show_main_menu
+    await show_main_menu(callback.message, user_id=callback.from_user.id)
+    await callback.answer("Skipped ⏭️")
 
 def get_interests_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(

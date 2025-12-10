@@ -137,7 +137,7 @@ async def update_weekly_leaderboard(bot):
             "🏆 Weekly Leaderboard Update! 🏆\n\n"
             "Here are this week's most popular profiles:\n\n"
             + "\n".join(lines) +
-            "\n\nUse /leaderboard in the bot to see the full list 👀\n\n"
+            "\n\nGo to ⚙️ More -> 🏆Leaderboard in the bot to see the full list 👀\n\n"
             "@AAUPulseBot"
         )
 
@@ -182,7 +182,6 @@ def setup_scheduler(bot):
     scheduler.add_job(
         update_weekly_leaderboard,
         'cron',
-        # This job will run on Monday at 10:00 AM
         day_of_week='mon',
         hour=10,
         minute=0,
@@ -192,6 +191,13 @@ def setup_scheduler(bot):
 
     scheduler.start()
     logger.info("Scheduler started with all jobs configured")
+
+    # 🟦 Start match queue scheduler as a standalone async background task
+    import asyncio
+    from scheduler.match_queue_scheduler import run_match_queue_scheduler
+
+    asyncio.create_task(run_match_queue_scheduler(db, bot))
+    logger.info("Match Queue Scheduler started")
 
 def shutdown_scheduler():
     """Shuts down the APScheduler."""

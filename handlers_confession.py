@@ -184,8 +184,8 @@ async def start_confession_msg(message: Message, state: FSMContext):
     await message.answer("Pick a campus:", reply_markup=kb)
     await state.set_state(ConfessionState.selecting_campus)
     await state.update_data(campus_page=0)
-
-
+    
+    
 def paginated_confessions_keyboard(confessions, page: int, items_per_page: int = 5) -> InlineKeyboardMarkup:
     total = len(confessions)
     total_pages = max(1, (total + items_per_page - 1) // items_per_page)
@@ -196,13 +196,17 @@ def paginated_confessions_keyboard(confessions, page: int, items_per_page: int =
     sliced = confessions[start:end]
 
     rows = []
-    for conf in sliced:
-        rows.append([
-            InlineKeyboardButton(
-                text=f"Confession #{conf['id']}",
-                callback_data=f"view_conf_{conf['id']}"
+    # group confessions in pairs
+    for i in range(0, len(sliced), 2):
+        row = []
+        for conf in sliced[i:i+2]:  # take 2 at a time
+            row.append(
+                InlineKeyboardButton(
+                    text=f"Confession #{conf['id']}",
+                    callback_data=f"view_conf_{conf['id']}"
+                )
             )
-        ])
+        rows.append(row)
 
     # 🔄 Pagination controls
     nav_row = []
@@ -226,8 +230,50 @@ async def my_confessions(message: Message, state: FSMContext):
         await message.answer("😶 You haven’t posted any confessions yet.")
         return
 
+    overview_lines = [f"📜 You’ve posted {len(confessions)} confessions.\n"]
+    recent = confessions[:5]  # show last 5
+
+    for c in recent:
+        status = c.get("status", "pending").capitalize()
+        text_preview = (c["text"][:80] + "...") if len(c["text"]) > 80 else c["text"]
+
+        overview_lines.append(f"#{c['id']} — {status}")
+        overview_lines.append(f"💭 \"{text_preview}\"")
+
+        # If rejected, show reason
+        if status.lower() == "rejected" and c.get("reason"):
+            overview_lines.append(f"(Reason: {c['reason']})")
+
+        # If posted in channel, fetch reactions dynamically
+        channel_message_id = c.get("channel_message_id")
+        if channel_message_id:
+            try:
+                # Fetch reactions from Telegram
+                reactions = await message.bot.get_message_reactions(
+                    chat_id=CHANNEL_ID,
+                    message_id=channel_message_id,
+                    limit=100  # adjust as needed
+                )
+                # reactions is a list of ReactionType objects
+                counts = {}
+                for r in reactions.reactions:
+                    emoji = r.type.emoji
+                    counts[emoji] = r.total_count
+
+                # Show top 3 reactions
+                top_reactions = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+                if top_reactions:
+                    reaction_str = "   ".join([f"{emoji} {count}" for emoji, count in top_reactions])
+                    overview_lines.append(reaction_str)
+            except Exception as e:
+                logger.warning(f"Could not fetch reactions for confession {c['id']}: {e}")
+
+        overview_lines.append("")  # blank line between confessions
+
+    overview_text = "\n".join(overview_lines)
+
     kb = paginated_confessions_keyboard(confessions, page=0)
-    await message.answer("📜 Your confessions:", reply_markup=kb)
+    await message.answer(overview_text, reply_markup=kb)
     await state.update_data(confessions=confessions, conf_page=0)
 
 
@@ -237,11 +283,51 @@ async def paginate_confessions(callback: CallbackQuery, state: FSMContext):
     confessions = data.get("confessions", [])
     page = int(callback.data.split("_")[-1])
 
+    # Slice confessions for this page (e.g., 5 per page)
+    per_page = 5
+    start = page * per_page
+    end = start + per_page
+    current_confessions = confessions[start:end]
+
+    overview_lines = [f"📜 Your confessions (Page {page+1}):\n"]
+    for c in current_confessions:
+        status = c.get("status", "pending").capitalize()
+        text_preview = (c["text"][:80] + "...") if len(c["text"]) > 80 else c["text"]
+
+        overview_lines.append(f"#{c['id']} — {status}")
+        overview_lines.append(f"💭 \"{text_preview}\"")
+
+        if status.lower() == "rejected" and c.get("reason"):
+            overview_lines.append(f"(Reason: {c['reason']})")
+
+        # If posted in channel, fetch reactions dynamically
+        channel_message_id = c.get("channel_message_id")
+        if channel_message_id:
+            try:
+                reactions = await callback.bot.get_message_reactions(
+                    chat_id=CHANNEL_ID,
+                    message_id=channel_message_id,
+                    limit=100
+                )
+                counts = {}
+                for r in reactions.reactions:
+                    emoji = r.type.emoji
+                    counts[emoji] = r.total_count
+                top_reactions = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+                if top_reactions:
+                    reaction_str = "   ".join([f"{emoji} {count}" for emoji, count in top_reactions])
+                    overview_lines.append(reaction_str)
+            except Exception as e:
+                logger.warning(f"Could not fetch reactions for confession {c['id']}: {e}")
+
+        overview_lines.append("")
+
+    overview_text = "\n".join(overview_lines)
+
     kb = paginated_confessions_keyboard(confessions, page)
-    await callback.message.edit_text("📜 Your confessions:", reply_markup=kb)
+    await callback.message.edit_text(overview_text, reply_markup=kb)
     await state.update_data(conf_page=page)
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("view_conf_"))
 async def view_confession(callback: CallbackQuery, state: FSMContext):
@@ -292,8 +378,6 @@ async def view_confession(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-
-
 @router.callback_query(F.data.startswith("delete_conf_"))
 async def delete_confession(callback: CallbackQuery, state: FSMContext):
     confession_id = int(callback.data.split("_")[-1])
@@ -319,13 +403,19 @@ async def delete_confession(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Failed to delete 💀")
         return
 
+    # ✅ Await state.get_data()
+    data = await state.get_data()
+    page = data.get("conf_page", 0)
+
     await callback.message.edit_text(
         f"🗑 Confession #{confession_id} deleted successfully!",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Back", callback_data=f"conf_page_{state.get_data().get('conf_page',0)}")],
+            [InlineKeyboardButton(text="🔙 Back", callback_data=f"conf_page_{page}")]
         ])
     )
     await callback.answer("Deleted ✅")
+
+
 
 def back_to_main_menu_kb():
     return ReplyKeyboardMarkup(
@@ -474,22 +564,60 @@ async def process_confession(message: Message, state: FSMContext):
     )
 
     await message.answer(preview, reply_markup=preview_keyboard())
-    await state.set_state(ConfessionState.confirming_confession)
-
+    await state.set_state(ConfessionState.confirming_confession)\
+        
+        
 CONFESSION_TEMPLATES = {
     "known": [
-        "💌 New Confession #{id}\n\n🏫 Campus: {campus}\n📚 Department: {department}\n\n💭 \"{text}\"",
-        "─────────────── ✨ ───────────────\n💘 Confession #{id}\n\n🏫 {campus} • 📚 {department}\n💌 \"{text}\"\n─────────────── ✨ ───────────────",
+        (
+            "💌 CONFESSION DROP (Known) #{id}\n\n"
+            "🏫 {campus}\n"
+            "📚 {department}\n\n"
+            "💭 \"{text}\"\n"
+            "─────────────────────────\n"
+            "Is this about you? React with ❤️\n\n"
+            "@AAUPulseBot"
+        ),
     ],
+
     "anon_campus": [
-        "🌟 Anonymous Confession #{id} 🌟\n\nCampus: Unknown\n📚 Department: {department}\n\n💌 \"{text}\"",
+        (
+            "🎭 CONFESSION DROP (Anonymous Campus) #{id}\n\n"
+            "🏫 Campus: Unknown\n"
+            "📚 Department: {department}\n\n"
+            "💭 \"{text}\"\n\n"
+            "✨ Hidden campus, but the story lives on.\n\n"
+            "─────────────────────────\n"
+            "Is this about you? React with ❤️\n\n"
+            "@AAUPulseBot"
+        ),
     ],
+
     "anon_dept": [
-        "💌 Confession Drop #{id}\n\n🏫 Campus: {campus}\n📚 Department: Unknown\n\n💭 \"{text}\"",
+        (
+            "🌟 CONFESSION DROP (Anonymous Department) #{id}\n\n"
+            "🏫 Campus: {campus}\n"
+            "📚 Department: Unknown\n\n"
+            "💭 \"{text}\"\n\n"
+            "✨ Department concealed, feelings revealed.\n\n"
+            "─────────────────────────\n"
+            "Is this about you? React with ❤️\n\n"
+            "@AAUPulseBot"
+        ),
     ],
+
     "fully_anon": [
-        "💭 Anonymous Whisper #{id}\n\nCampus: Unknown\nDepartment: Unknown\n\n💌 \"{text}\"",
-    ]
+        (
+            "🕊 CONFESSION DROP (Fully Anonymous) #{id}\n\n"
+            "🏫 Campus: Unknown\n"
+            "📚 Department: Unknown\n\n"
+            "💭 \"{text}\"\n\n"
+            "✨ A voice from the shadows.\n\n"
+            "─────────────────────────\n"
+            "Is this about you? React with ❤️\n\n"
+            "@AAUPulseBot"
+        ),
+    ],
 }
 
 @router.callback_query(F.data == "conf_edit", StateFilter(ConfessionState.confirming_confession))

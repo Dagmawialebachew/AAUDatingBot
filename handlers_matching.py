@@ -253,7 +253,7 @@ async def handle_like_message(message: Message, state: FSMContext):
         return await show_candidate(message, state, liker_id, initial_call=True)
 
     liked_id = candidates[current_index]['id']
-    result = await db.add_like(liker_id, liked_id)
+    result = await db.add_like(liker_id, liked_id, bot = message.bot)
 
     # 🎬 Cinematic confirmation
     await message.answer(

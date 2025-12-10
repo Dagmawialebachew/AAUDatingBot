@@ -13,7 +13,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.enums import ParseMode
-
+from handlers_main import get_main_menu_keyboard
 import logging
 from datetime import date
 
@@ -133,7 +133,7 @@ async def admin_panel(message: Message):
 @router.message(F.text == "🔙 Exit Admin Mode")
 async def exit_admin(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Exited admin mode.", reply_markup=None)
+    await message.answer("Exited admin mode.", reply_markup=get_main_menu_keyboard())
 
 
 # --- Confessions Panel ---
@@ -154,21 +154,42 @@ def get_confessions_panel(confession_id: int = None) -> InlineKeyboardMarkup:
 async def admin_confessions_menu(message: Message):
     if not is_admin(message.from_user.id):
         return
+
     confessions = await db.get_pending_confessions()
     if not confessions:
         await message.answer("✅ No pending confessions.", reply_markup=get_admin_main_menu())
         return
+    from handlers_confession import CONFESSION_TEMPLATES
+
     confession = confessions[0]
-    text = (
+    campus = confession.get("campus", "Unknown")
+    department = confession.get("department", "Unknown")
+    text = confession["text"]
+
+    # 🔀 Pick template based on known/unknown fields
+    if campus == "Unknown" and department == "Unknown":
+        template = random.choice(CONFESSION_TEMPLATES["fully_anon"])
+    elif campus == "Unknown":
+        template = random.choice(CONFESSION_TEMPLATES["anon_campus"])
+    elif department == "Unknown":
+        template = random.choice(CONFESSION_TEMPLATES["anon_dept"])
+    else:
+        template = random.choice(CONFESSION_TEMPLATES["known"])
+
+    formatted_text = template.format(
+        id=confession["id"],
+        campus=campus,
+        department=department,
+        text=text
+    )
+
+    review_text = (
         f"📋 Confession Review (ID: {confession['id']})\n\n"
-        f"Campus: {confession.get('campus', 'N/A')}\n"
-        f"Department: {confession.get('department', 'N/A')}\n\n"
-        f"💭 {confession['text']}\n\n"
+        f"{formatted_text}\n\n"
         f"Pending confessions: {len(confessions)}"
     )
-    await message.answer(text, reply_markup=get_confessions_panel(confession['id']))
 
-
+    await message.answer(review_text, reply_markup=get_confessions_panel(confession['id']))
 
 
 @router.callback_query(F.data.startswith("approve_conf_"))
@@ -210,17 +231,30 @@ async def approve_confession(callback: CallbackQuery):
         # 🪙 Add coins after approval
         reward = COIN_REWARDS.get("confession", 5)
         try:
-            await db.add_coins(confession["sender_id"], reward)
+            await db.add_coins(
+                    confession["sender_id"],
+                    reward,
+                    tx_type="confession",
+                    description=f"Confession #{confession_id} approved"
+                )
             # Notify user privately
             await callback.bot.send_message(
                 confession["sender_id"],
                 f"✅ Your confession #{confession_id} was approved!\n\n"
-                f"🪙 +{reward} coins have been added to your balance."
+                f"🪙 +{reward} coins have been added to your balance.\n\n"
+                "Check out @AAUPulse to see it live!"
             )
         except Exception as e:
             logger.warning(f"Could not add coins or notify user: {e}")
 
-        await callback.answer("✅ Approved, posted & rewarded!")
+        await callback.message.edit_text(
+    f"✅ Confession #{confession_id} approved.\n\n"
+    f"{callback.message.text}"
+)
+
+        await callback.message.edit_reply_markup(reply_markup=None)
+
+        await callback.answer("Approved!")
     except Exception as e:
         logger.error(f"Error posting confession: {e}")
         await callback.answer("Failed to post 💀")

@@ -59,6 +59,12 @@ def setup_handlers(dp: Dispatcher):
     dp.include_router(likes_router)
     dp.include_router(coin_and_shop_router)
     dp.include_router(invite_router)
+    
+    
+    #For testing handlers
+    from test_match_queue import setup_test_handlers
+    dp.include_router(setup_test_handlers(db))
+
 
     dp.message.middleware(RateLimitMiddleware(rate_limit=1))
     dp.callback_query.middleware(RateLimitMiddleware(rate_limit=1))
@@ -66,8 +72,8 @@ def setup_handlers(dp: Dispatcher):
     dp.message.middleware(BanCheckMiddleware(db))
     dp.callback_query.middleware(BanCheckMiddleware(db))
     
-    dp.message.middleware(GracefulFallbackMiddleware())
-    dp.callback_query.middleware(GracefulFallbackMiddleware())
+    # dp.message.middleware(GracefulFallbackMiddleware())
+    # dp.callback_query.middleware(GracefulFallbackMiddleware())
 
 # -------------------- Bot Commands --------------------
 from aiogram.types import BotCommandScopeDefault, BotCommandScopeChat

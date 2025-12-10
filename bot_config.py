@@ -6,6 +6,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHANNEL_ID = os.getenv('CHANNEL_ID', '@AAUPulse')
 ADMIN_GROUP_ID = os.getenv('ADMIN_GROUP_ID')
+ADMIN_NEW_USER_GROUP_ID = os.getenv('ADMIN_NEW_USER_GROUP_ID')
 SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
 SUPABASE_KEY = os.getenv('VITE_SUPABASE_ANON_KEY')
 
@@ -24,8 +25,7 @@ AAU_DEPARTMENTS = {
     "🏗️ Engineering": "Engineering",
     "⚖️ Law": "Law",
     "💼 Business": "Business",
-    "🏥 Health Sciences": "Health Sciences",
-    "📈 FBE": "FBE",
+    "📈 Health Sciences": "Health Sciences",
     "🔬 Natural Sciences": "Natural Sciences",
     "🧠 Social Sciences": "Social Sciences",
     "📚 Other": "Other",
@@ -89,40 +89,54 @@ COIN_COSTS = {
 
 VIBE_QUESTIONS = [
     {
-        'q': '☕️ Morning bunna before class or 🥤 Soft drink with friends after lecture?',
-        'options': ['☕️ Bunna', '🥤 Soft drink'],
-        'trait': 'social'
-    },
+    'q': '🎉 Friday night: AAU event with friends or 😌 staying home recharging?',
+    'options': ['🎉 Event', '😌 Stay home'],
+    'trait': 'social_energy'
+},
     {
-        'q': '📚 Serious library grind or 🛋️ Group study that turns into gossip?',
-        'options': ['📚 Library grind', '🛋️ Group study'],
-        'trait': 'studious'
-    },
+    'q': '📚 Study mode: Silent library grind or 🤝 group study with jokes?',
+    'options': ['📚 Silent library', '🤝 Group study'],
+    'trait': 'study_style'
+},
+
     {
-        'q': '🌙 All‑night exam prep or 🎬 Movie marathon with friends?',
-        'options': ['🌙 Exam prep', '🎬 Movie marathon'],
-        'trait': 'lifestyle'
-    },
+    'q': '⏰ Are you: Always on time or 🕐 “5 minutes is not late” type?',
+    'options': ['⏰ On time', '🕐 Ethiopian time'],
+    'trait': 'punctuality'
+},
+
+   {
+    'q': '🍲 Lunch: Shiro/Injera at the cafe or 🍔 fast food outside campus?',
+    'options': ['🍲 Shiro injera', '🍔 Fast food'],
+    'trait': 'food_preference'
+},
+
     {
-        'q': '🎉 Campus event hype or 🏠 Chill at home with Netflix?',
-        'options': ['🎉 Campus event', '🏠 Netflix'],
-        'trait': 'extrovert'
-    },
+    'q': '🧍 Between classes: Sitting alone with headphones or 👥 chatting around campus?',
+    'options': ['🎧 Headphones solo', '👥 Chatting'],
+    'trait': 'campus_behavior'
+},
+
+   {
+    'q': '💘 Dating style: “Let’s take it slow” or ❤️ “Let’s vibe fast”?',
+    'options': ['🐌 Slow & careful', '⏩ Fast & direct'],
+    'trait': 'romantic_speed'
+},
+
+
     {
-        'q': '🍲 Cafeteria shiro & injera or 🍕 Shawarma/Pizza off‑campus?',
-        'options': ['🍲 Shiro & injera', '🍕 Shawarma/Pizza'],
-        'trait': 'foodie'
-    },
+    'q': '🌙 Are you more of a night owl or 🌅 early morning person?',
+    'options': ['🌙 Night owl', '🌅 Morning person'],
+    'trait': 'day_rhythm'
+},
+    
     {
-        'q': '⚽️ Football match at the stadium or 🎮 FIFA in the dorms?',
-        'options': ['⚽️ Stadium football', '🎮 Dorm FIFA'],
-        'trait': 'hobbies'
-    },
-    {
-        'q': '🚌 Taxi line adventures or 🚶‍♂️ Walking with friends between classes?',
-        'options': ['🚌 Taxi line', '🚶‍♂️ Walking crew'],
-        'trait': 'lifestyle2'
-    }
+    'q': '💸 Money vibe: Saver or 🤑 spender on treats?',
+    'options': ['💸 Saver', '🤑 Spender'],
+    'trait': 'money_habit'
+},
+    
+
 ]
 
 

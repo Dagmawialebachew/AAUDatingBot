@@ -585,7 +585,7 @@ async def handle_like_back_to_match(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
     # Create match
-    result = await db.add_like(user_id, admirer_id)
+    result = await db.add_like(user_id, admirer_id, bot=callback.bot)
     if not result or result.get("status") != "match":
         await callback.answer("Error: Match could not be created 💀", show_alert=True)
         return

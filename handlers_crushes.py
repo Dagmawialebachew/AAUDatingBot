@@ -180,8 +180,6 @@ async def _render_crush_list_view(
 
         if list_type == 'matches':
             initiator_id = item.get("initiator_id")
-            print('here is intiator id', initiator_id)
-            print('here is user id', user_id)
             # If revealed OR viewer is the initiator → treat as revealed
             if item.get("revealed") or initiator_id == user_id:
                 status = "✅ Revealed"

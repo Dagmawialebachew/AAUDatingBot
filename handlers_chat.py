@@ -126,51 +126,82 @@ async def refresh_pinned_card(callback: CallbackQuery, state: FSMContext):
     # Fetch latest history
     history = await db.get_chat_history(match_id, limit=10)
 
-    # Rebuild caption like ensure_pinned_card_for_user
-    header = caption_header(other_user, revealed)
+    # Build bubbles (consistent sender labels)
     bubbles = []
     for msg in history[-5:]:
-        sender_label = "🔵 Them" if msg["sender_id"] == other_user.get("id") else "🟢 You"
+        sender_label = "🟢 You" if msg["sender_id"] == user_id else "🔵 Them"
         bubbles.append(bubble(sender_label, h(msg.get("message", ""))))
     history_text = "\n".join(bubbles) if bubbles else "✨ <i>No messages yet — break the ice!</i> 💬"
 
-    caption = (
-        f"{header}\n\n"
-        f"📜 <u>Last messages</u>\n"
-        f"{history_text}\n\n"
-        f"───────────────\n\n"
-        f"💡 <i>Say hi, drop a voice note, or send a sticker — your move.</i>"
-    )
+    # Interests + vibe context for anonymous consistency
+    viewer = await db.get_user(user_id)
+    viewer_interests = await db.get_user_interests(user_id) or []
+    candidate_interests = await db.get_user_interests(other_user["id"]) or []
 
+    # Header/caption using same templates as start_chat
+    if revealed:
+        header = caption_header(other_user, revealed=True)
+        caption = (
+            f"{header}\n\n"
+            f"📜 <u>Last messages</u>\n{history_text}\n\n"
+            "───────────────\n\n"
+            "💡 <i>Say hi or drop a voice note — your move.</i>"
+        )
+    else:
+        # Anonymous: shared/tease interests hint
+        shared = list(set(candidate_interests) & set(viewer_interests))
+        if shared:
+            chosen = random.sample(shared, min(2, len(shared)))
+            interests_hint = "✨ You both vibe with " + " & ".join(chosen)
+        else:
+            tease = random.sample(candidate_interests, min(2, len(candidate_interests)))
+            interests_hint = "✨ They might be into " + " & ".join(tease) if tease else "✨ Their interests are waiting to be revealed..."
+
+        partial_name = other_user.get("name", "Anon")[:4] + "…"
+        header = f"💌 Chat with 🎭 Anonymous — {partial_name}"
+        caption = (
+            f"{header}\n\n"
+            "🔒 <b>Identity Hidden</b>\n\n"
+            f"{interests_hint}\n"
+            "🙈 <i>Photo blurred until reveal...</i>\n\n\n"
+            f"📜 <u>Last messages</u>\n{history_text}\n\n"
+            "───────────────\n\n"
+            "💡 <i>Send a message to break the ice!</i>"
+        )
+
+    # Keyboard and target message id
     keyboard = build_header_keyboard(match_id, revealed)
     pinned_card_id = (await state.get_data()).get("pinned_card_id")
+    if not pinned_card_id:
+        await callback.answer("No chat card to refresh 💀")
+        return
 
-    if pinned_card_id:
-        try:
-            if other_user.get("photo_file_id") and revealed:
-                await callback.bot.edit_message_caption(
-                    chat_id=user_id,
-                    message_id=pinned_card_id,
-                    caption=caption,
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await callback.bot.edit_message_text(
-                    chat_id=user_id,
-                    message_id=pinned_card_id,
-                    text=caption,
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            await callback.answer("🔄 Card refreshed!")
-        except Exception as e:
-            # Telegram throws "Bad Request: message is not modified" if nothing changed
-            if "message is not modified" in str(e):
-                await callback.answer("✅ Already up to date!")
-            else:
-                logger.error(f"Error refreshing card: {e}")
-                await callback.answer("⚠️ Could not refresh 💀")
+    # Edit in place
+    try:
+        if revealed and other_user.get("photo_file_id"):
+            await callback.bot.edit_message_caption(
+                chat_id=user_id,
+                message_id=pinned_card_id,
+                caption=caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await callback.bot.edit_message_text(
+                chat_id=user_id,
+                message_id=pinned_card_id,
+                text=caption,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        await callback.answer("🔄 Card refreshed!")
+    except Exception as e:
+        if "message is not modified" in str(e):
+            await callback.answer("✅ Already up to date!")
+        else:
+            logger.error(f"Error refreshing card: {e}")
+            await callback.answer("⚠️ Could not refresh 💀")
+
     else:
         await callback.answer("No pinned card found 💀")
 
@@ -238,29 +269,46 @@ async def handle_unmatch(callback: CallbackQuery, state: FSMContext):
     updated_match = await db.get_match_by_id(match_id)
     logger.info(f"Updated match after unmatch: {updated_match}")
 
-
-    # Clean up active session
+    # Clean up active session and pinned state
     active_chats.pop(user_id, None)
-    pinned_cards.get(user_id, {}).pop(match_id, None)
+    user_pinned = pinned_cards.get(user_id, {})
+    card_msg_id = user_pinned.pop(match_id, None)
+    if not user_pinned:
+        pinned_cards.pop(user_id, None)
     await state.update_data(active_chat=None, pinned_card_id=None)
 
-    # Update UI
-    # Update UI safely
+    # Update UI: show closed text then delete the message(s)
     text = "💔 You’ve unmatched. This chat is now closed."
     try:
+        # Edit the callback message first (if possible)
         if getattr(callback.message, "caption", None) is not None:
-            await callback.message.edit_caption(
-                text,
-                reply_markup=None
-            )
+            await callback.message.edit_caption(text, reply_markup=None)
         else:
-            await callback.message.edit_text(
-                text,
-                reply_markup=None
-            )
+            await callback.message.edit_text(text, reply_markup=None)
     except Exception:
-        await callback.message.answer(text)
+        # If edit fails, try to send a fallback message (non-blocking)
+        try:
+            await callback.message.answer(text)
+        except Exception:
+            pass
 
+    # Delete the visible chat card(s) to fully close the UI
+    try:
+        # Delete the message that triggered the callback (if still present)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+
+        # Also delete the stored chat card (if different)
+        if card_msg_id:
+            try:
+                await callback.bot.delete_message(chat_id=user_id, message_id=card_msg_id)
+            except Exception:
+                # ignore if already deleted or not accessible
+                pass
+    except Exception as e:
+        logger.warning(f"Could not fully remove chat card(s) for user {user_id}, match {match_id}: {e}")
 
     # Notify the other user
     try:
@@ -269,13 +317,17 @@ async def handle_unmatch(callback: CallbackQuery, state: FSMContext):
             other_user = match_data["user"]
             await callback.bot.send_message(
                 other_user["id"],
-                "💔 Your match has ended. You’ll now see them again in Likes/Admirers."
+                "💔 Your match has ended. You will not see them again in Mutual Matches."
             )
     except Exception as e:
         logger.error(f"Could not notify other user about unmatch: {e}")
 
     # Bring user back to main menu
-    await callback.message.answer("Returning you to the main menu…", reply_markup=ReplyKeyboardRemove())   
+    try:
+        await callback.message.answer("Returning you to the main menu…", reply_markup=ReplyKeyboardRemove())
+    except Exception:
+        pass
+
     await show_main_menu(callback.message, user_id=callback.from_user.id)
     await callback.answer("Unmatched ❌")
 
@@ -367,7 +419,7 @@ async def ensure_pinned_card_for_user(
     photo_file_id = other_user.get("photo_file_id")
 
     try:
-        if photo_file_id:
+        if photo_file_id and revealed:
             sent = await bot.send_photo(
                 user_id,
                 photo=photo_file_id,
@@ -476,11 +528,21 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
             )
         else:
             # Second liker → identity-hidden profile text
-            tease_interests = random.sample(candidate_interests or [], min(2, len(candidate_interests or [])))
-            if tease_interests:
-                interests_hint = "✨ They might be into " + " & ".join(tease_interests)
+            viewer_interests = viewer_interests or []
+            candidate_interests = candidate_interests or []
+            shared = list(set(candidate_interests) & set(viewer_interests))
+
+            if shared:
+                # show overlap
+                chosen = random.sample(shared, min(2, len(shared)))
+                interests_hint = "✨ You both vibe with " + " & ".join(chosen)
             else:
-                interests_hint = "✨ Their interests are waiting to be revealed..."
+                # fallback to candidate’s own interests
+                tease_interests = random.sample(candidate_interests or [], min(2, len(candidate_interests or [])))
+                if tease_interests:
+                    interests_hint = "✨ They might be into " + " & ".join(tease_interests)
+                else:
+                    interests_hint = "✨ Their interests are waiting to be revealed..."
 
             partial_name = other_user.get("name", "Anon")[:4] + "…"
             header = f"💌 Chat with 🎭 Anonymous — {partial_name}"
@@ -540,13 +602,13 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML
                 )
+            pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
+            await state.update_data(pinned_card_id=sent.message_id)
             if revealed:
                 try:
                     await sent.pin(disable_notification=True)
                 except Exception:
                     pass
-                pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
-                await state.update_data(pinned_card_id=sent.message_id)
     else:
         # --- Clean previous message ---
         try:
@@ -570,13 +632,13 @@ async def start_chat(callback: CallbackQuery, state: FSMContext):
             )
 
         # Pin message only if revealed
+        pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
+        await state.update_data(pinned_card_id=sent.message_id)
         if revealed:
             try:
                 await sent.pin(disable_notification=True)
             except Exception:
                 pass
-            pinned_cards.setdefault(user_id, {})[match_id] = sent.message_id
-            await state.update_data(pinned_card_id=sent.message_id)
 
     # --- Enter chat mode ---
     if previous_state != ChatState.in_chat.state:
@@ -1154,7 +1216,8 @@ async def reveal_identity(callback: CallbackQuery, state: FSMContext):
             await callback.bot.send_message(
                 other_user["id"],
                 f"🎭 <b>{sender_name}</b> just revealed their identity!\n\n"
-                "You’re no longer anonymous — time to make the chat count 💬",
+                "You’re no longer anonymous — time to make the chat count 💬\n\n"
+                f"Go to 💖 My Crushes -> 💘Mutual Matches to see more of {sender_name}",
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
