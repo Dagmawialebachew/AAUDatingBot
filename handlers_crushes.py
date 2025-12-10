@@ -68,11 +68,15 @@ def _generate_list_pagination_keyboard(
       
             # If revealed OR viewer is the initiator → show name
             if item.get("revealed") or initiator_id == user_id:
+    # fully revealed → show full name
                 text = f"💬 {item_user['name']}"
             else:
-                text = "🎭 Anonymous Match"
+                # anonymous → show only first 4 characters
+                safe_name = item_user['name'][:4] + "…" if item_user.get("name") else "Anon…"
+                text = f"🎭 {safe_name}"
 
             callback_data = f"chat_{item['match_id']}_{current_page}"
+
         elif list_type == 'admirers':
             # Show only first 4 characters of the name
             safe_name = item_user['name'][:4] + "…" if item_user.get('name') else "Anon…"
@@ -186,9 +190,14 @@ async def _render_crush_list_view(
                 safe_name = hd.quote(user.get("name", "Unknown"))
             else:
                 status = "🎭 Hidden"
-                safe_name = "Anon…"
+                # show only first 4 characters of the name as a teaser
+                if user.get("name"):
+                    safe_name = hd.quote(user["name"][:4] + "…")
+                else:
+                    safe_name = "Anon…"
 
             list_summary += f"{start_index + idx + 1}. <b>{safe_name}</b> — {status}\n"
+
 
         elif list_type == 'admirers':
         # 👀 Hide name until user taps

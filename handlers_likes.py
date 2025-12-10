@@ -356,23 +356,32 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
 
     # --- Fetch match row safely ---
     match_row = await db.get_active_match_between(viewer_id, target_id)
-    match_id = match_row.get("id") if match_row else None
-    print('match_row:', match_row)
-    print('match_id:', match_id)
+    match_id = match_row.get("match_id") if match_row else None
+    logger.info(f"match_row={match_row}, match_id={match_id}")
 
     if match_row:
         is_revealed = match_row.get("revealed", False)
+        initiator_id = match_row.get("initiator_id")
         logger.info(f"Match found: {match_row}")
     else:
         is_revealed = False
+        initiator_id = None
         logger.info("No active match found between viewer and target.")
 
-    # --- Force reveal if user is in 'likes' list ---
+    # --- Force reveal if viewer is initiator (asymmetric rule)
+    if initiator_id == viewer_id:
+        is_revealed = True
+        logger.info("Auto-revealed profile because viewer is the initiator.")
+
+    # --- Force reveal if user is in 'likes' list (existing rule)
     if list_type == "likes":
         is_revealed = True
         logger.info("Auto-revealed profile because viewer is viewing their 'likes' list.")
 
     # --- Build profile text ---
+    candidate_name = (candidate.get("name") or "Student").strip()
+    candidate_photo_id = candidate.get("photo_file_id")
+
     profile_text = await format_profile_text(
         candidate,
         vibe_score=vibe_score,
@@ -382,52 +391,26 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
         revealed=is_revealed
     )
 
-    # --- Rotating breaker for UX ---
-    breakers = [
-        "─────────────── ✨ ───────────────",
-        "💘 Another crush appears...",
-        "🎭 A new face steps into the spotlight",
-        "⚡ Fresh profile unlocked!",
-        "🌟 Who’s this? Let’s find out..."
-    ]
-    breaker_line = random.choice(breakers)
-    try:
-        await callback.message.answer(breaker_line)
-    except Exception:
-        pass
-
     # --- Build action keyboard ---
     if match_row and not is_revealed:
+        # Use match_id consistently
         actions_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text="🎭 Reveal Identity (30 coins)",
-                callback_data=f"reveal_{match_row['match_id']}"
+                callback_data=f"reveal_{match_id}"
             )],
             [InlineKeyboardButton(text="🔙 Back", callback_data=f"backtolist_{list_type}_{page}")]
         ])
-        logger.info(f"Actions KB: Reveal button shown for match_id={match_row['match_id']}")
+        logger.info(f"Actions KB: Reveal button shown for match_id={match_id}")
     else:
         if list_type == "admirers":
             actions_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text="❤️ Like Back",
-                        callback_data=f"likeback_{target_id}"
-                    ),
-                    InlineKeyboardButton(
-                        text="❌ Ignore",
-                        callback_data=f"ignore_{target_id}"
-                    )
+                    InlineKeyboardButton(text="❤️ Like Back", callback_data=f"likeback_{target_id}"),
+                    InlineKeyboardButton(text="❌ Ignore", callback_data=f"ignore_{target_id}")
                 ],
-                
-                [
-                    InlineKeyboardButton(
-                        text="🔙 Back to Admirers",
-                        callback_data=f"backtolist_admirers_{page}"
-                    )
-                ]
+                [InlineKeyboardButton(text="🔙 Back to Admirers", callback_data=f"backtolist_admirers_{page}")]
             ])
-
         elif list_type == "likes":
             actions_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="❌ Remove Like", callback_data=f"unlike_{target_id}")],
@@ -438,7 +421,6 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="💬 Open Chat", callback_data=f"chat_{match_id}")],
                 [InlineKeyboardButton(text="🔙 Back to Crushes", callback_data=f"backtolist_{list_type}_{page}")]
             ])
-        logger.info(f"Actions KB: Default buttons for list_type={list_type}")
 
     # --- Clean UX: remove old message ---
     try:
@@ -446,11 +428,11 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
     except Exception:
         pass
 
-    # --- Send profile ---
+    # --- Send profile (photo only if revealed and photo exists) ---
     try:
-        if candidate.get("photo_file_id") and is_revealed:
+        if candidate_photo_id and is_revealed:
             await callback.message.answer_photo(
-                photo=candidate["photo_file_id"],
+                photo=candidate_photo_id,
                 caption=profile_text,
                 reply_markup=actions_kb,
                 parse_mode=ParseMode.HTML
@@ -466,8 +448,6 @@ async def view_profile_from_list(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(profile_text, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
 
     await callback.answer()
-
-
 
 async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, context: str = "swipe", liked_before: bool = False):
     """
@@ -489,11 +469,20 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
     match_row = await db.get_active_match_between(user_id, other_id)
     initiator_id = match_row.get("initiator_id") if match_row else None
     logger.info(f"[celebrate_match] match_row={match_row}, initiator_id={initiator_id}")
-
-    async def send_profile(to_user: int, profile_owner: int, is_initiator: bool):
+    
+    async def send_profile(
+        bot,
+        db,
+        match_id: int,
+        to_user: int,
+        profile_owner: int,
+        is_initiator: bool,
+        liked_before: bool
+    ):
         viewer = await db.get_user(to_user)
         candidate = await db.get_user(profile_owner)
 
+        # --- Breakers for cinematic vibe ---
         breakers = [
             "─────────────── ✨ ───────────────",
             "🎉 Sparks ignite...",
@@ -503,30 +492,33 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
         ]
         breaker_line = random.choice(breakers)
 
+        # --- Actions keyboard (unchanged structure) ---
         actions_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💬 Open Chat", callback_data=f"chat_{match_id}")],
             [InlineKeyboardButton(text="👀 View Profile", callback_data=f"backlike_viewprofile_{profile_owner}_matches_0")]
         ])
 
+        # --- Vibe score (kept for future use / consistency) ---
         viewer_vibe = _safe_json_load(viewer.get("vibe_score") if viewer else "{}")
         candidate_vibe = _safe_json_load(candidate.get("vibe_score") if candidate else "{}")
         vibe_score = calculate_vibe_compatibility(viewer_vibe, candidate_vibe)
-        
+
+        # --- Initiator: playful reveal line (initiator sees candidate revealed) ---
         if is_initiator:
-            logger.info(f"[send_profile] {to_user} is INITIATOR -> sending teaser only")
+            logger.info(f"[send_profile] to_user={to_user} is INITIATOR -> sending teaser with candidate revealed")
+            candidate_name = (candidate.get("name") or "Your crush").strip()
             caption = (
                 f"{breaker_line}\n\n"
-                f"🎉 <b>It’s a Match!</b>\n\n"
+                f"🎉 <b>{(candidate_name)} liked you back!</b>\n\n"
                 f"💰 +10 coins added!\n"
                 f"Use the buttons below to start chatting or view profile."
             )
             await bot.send_message(to_user, caption, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
+            return
 
-
-        elif liked_before:
-            logger.info(f"[send_profile] {to_user} is SECOND LIKER (liked_before=True)")
-
-            # Flip reveal flag in DB
+        # --- Second liker who liked before (flip reveal in DB, keep your logic) ---
+        if liked_before:
+            logger.info(f"[send_profile] to_user={to_user} is SECOND LIKER (liked_before=True) -> flipping reveal")
             try:
                 await db.conn(
                     "UPDATE matches SET revealed = TRUE WHERE id = ?",
@@ -544,35 +536,48 @@ async def celebrate_match(bot, user_id: int, other_id: int, match_id: int, conte
                 f"💰 +10 coins added!\n"
                 f"Use the buttons below to start chatting or view profile."
             )
-
             await bot.send_message(to_user, caption, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
+            return
 
+        # --- Default second liker: identity-hidden profile text (unchanged) ---
+        logger.info(f"[send_profile] to_user={to_user} is SECOND LIKER -> sending identity-hidden profile")
+        profile_text = await format_profile_text(
+            candidate,
+            vibe_score=vibe_score,
+            show_full=False,
+            viewer_interests=viewer.get("interests") if viewer else None,
+            candidate_interests=candidate.get("interests") if candidate else None,
+            revealed=False  # identity hidden to second liker
+        )
 
-        else:
-            # Second liker → identity-hidden profile text
-            logger.info(f"[send_profile] {to_user} is SECOND LIKER -> sending identity-hidden profile")
-
-            profile_text = await format_profile_text(
-                candidate,
-                vibe_score=vibe_score,
-                show_full=False,
-                viewer_interests=viewer.get("interests"),
-                candidate_interests=candidate.get("interests"),
-                revealed=False   # 👈 identity hidden
-            )
-
-            caption = (
-                f"{breaker_line}\n\n"
-                f"🎉 <b>It’s a Match!</b>\n\n"
-                f"{profile_text}\n\n"
-                f"💰 +10 coins added!"
-            )
-
-            await bot.send_message(to_user, caption, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
-
+        caption = (
+            f"{breaker_line}\n\n"
+            f"🎉 <b>It’s a Match!</b>\n\n"
+            f"{profile_text}\n\n"
+            f"💰 +10 coins added!"
+        )
+        await bot.send_message(to_user, caption, reply_markup=actions_kb, parse_mode=ParseMode.HTML)
     # Deliver to both users
-    await send_profile(user_id, other_id, is_initiator=(initiator_id == user_id))
-    await send_profile(other_id, user_id, is_initiator=(initiator_id == other_id))
+    await send_profile(
+        bot,
+        db,
+        match_id,
+        to_user=user_id,
+        profile_owner=other_id,
+        is_initiator=(initiator_id == user_id),
+        liked_before=False  # set from your context if applicable
+    )
+
+    await send_profile(
+        bot,
+        db,
+        match_id,
+        to_user=other_id,
+        profile_owner=user_id,
+        is_initiator=(initiator_id == other_id),
+        liked_before=False  # set from your context if applicable
+    )
+
 
 
 @router.callback_query(F.data.startswith("likeback_"))
