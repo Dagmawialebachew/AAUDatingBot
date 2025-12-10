@@ -109,7 +109,7 @@ class MatchQueueService:
             SELECT *
             FROM match_queue
             WHERE sent = FALSE
-            AND next_post_time >= NOW()
+            AND next_post_time <= NOW()
             ORDER BY next_post_time ASC
             LIMIT 1;
         """

@@ -26,4 +26,4 @@ async def run_match_queue_scheduler(db, bot):
             if item:
                 await service.record_error(item["id"], str(e))
 
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)  # Check every 5 minutes
