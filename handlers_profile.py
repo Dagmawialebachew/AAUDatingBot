@@ -1025,7 +1025,7 @@ async def finish_interests(callback: CallbackQuery, state: FSMContext):
 
         # Call show_main_menu with a fresh Message context
         from handlers_main import show_main_menu
-        await show_main_menu(bot = callback.bot, user_id=user_id)
+        await show_main_menu(callback.message, user_id=user_id)
 
         profile_text = await format_profile_text(
             user_data,

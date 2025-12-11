@@ -238,7 +238,7 @@ async def show_main_menu(
     # If we reach here, there was no message/callback but we have user_id + bot → send keyboard directly
     await bot.send_message(
         chat_id=uid,
-        text="",  # empty text so only keyboard appears; change if you want a short label
+        text=safe_text("Main Menu 👇"),  # empty text so only keyboard appears; change if you want a short label
         reply_markup=get_main_menu_keyboard(),
         parse_mode="HTML"
     )
@@ -248,7 +248,8 @@ async def show_main_menu(
 async def main_menu_callback(message: Message):
     await show_main_menu(message)
     
-    
+def safe_text(text: str) -> str:
+    return text if text and text.strip() else "Main menu 👇"
 
 @router.callback_query(F.data == "main_menu")
 async def main_menu_inline_callback(callback: CallbackQuery):
