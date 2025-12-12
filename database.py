@@ -366,48 +366,49 @@ class Database:
             params = [user_id, user_id, user_id, user_id]
 
             sql = """
-            WITH pass_counts AS (
-                SELECT target_id, COUNT(*) AS pass_count
-                FROM passes
-                WHERE user_id = $1
-                AND created_at > NOW() - INTERVAL '3 days'
-                GROUP BY target_id
-            ),
-            mutual_likes AS (
-                SELECT liker_id
-                FROM likes
-                WHERE liked_id = $2
-            )
-            SELECT u.*,
-                COALESCE(pc.pass_count, 0) AS pass_count,
-                CASE WHEN u.id IN (SELECT liker_id FROM mutual_likes) THEN 1 ELSE 0 END AS liked_you
-            FROM users u
-            LEFT JOIN pass_counts pc ON u.id = pc.target_id
-            WHERE u.id != $3
-            AND u.is_active = TRUE
-            AND u.is_banned = FALSE
-            AND u.id NOT IN (SELECT liked_id FROM likes WHERE liker_id = $4)
-            AND (pc.pass_count IS NULL OR pc.pass_count < 2)
-            """
+                    WITH pass_counts AS (
+                        SELECT target_id, COUNT(*) AS pass_count
+                        FROM passes
+                        WHERE user_id = $1
+                        AND created_at > NOW() - INTERVAL '3 days'
+                        GROUP BY target_id
+                    ),
+                    mutual_likes AS (
+                        SELECT liker_id
+                        FROM likes
+                        WHERE liked_id = $2
+                    )
+                    SELECT u.*,
+                        COALESCE(pc.pass_count, 0) AS pass_count,
+                        CASE WHEN u.id IN (SELECT liker_id FROM mutual_likes) THEN 1 ELSE 0 END AS liked_you
+                    FROM users u
+                    LEFT JOIN pass_counts pc ON u.id = pc.target_id
+                    WHERE u.id != $3
+                    AND u.is_active = TRUE
+                    AND u.is_banned = FALSE
+                    AND u.id NOT IN (SELECT liked_id FROM likes WHERE liker_id = $4)
+                    AND pc.pass_count IS NULL
+                    """
+
 
             # --- Dynamic filters ---
-            if user['seeking_gender'].lower() != 'any':
+            if user.get("seeking_gender", "").lower() != "any":
                 sql += f" AND LOWER(u.gender) = ${len(params)+1}"
-                params.append(user['seeking_gender'].lower())
+                params.append(user["seeking_gender"].lower())
 
             sql += f" AND (LOWER(u.seeking_gender) = 'any' OR LOWER(u.seeking_gender) = ${len(params)+1})"
-            params.append(user['gender'].lower())
+            params.append(user.get("gender", "").lower())
 
             if filters:
-                if filters.get('campus'):
+                if filters.get("campus"):
                     sql += f" AND u.campus = ${len(params)+1}"
-                    params.append(filters['campus'])
-                if filters.get('department'):
+                    params.append(filters["campus"])
+                if filters.get("department"):
                     sql += f" AND u.department = ${len(params)+1}"
-                    params.append(filters['department'])
-                if filters.get('year'):
+                    params.append(filters["department"])
+                if filters.get("year"):
                     sql += f" AND u.year = ${len(params)+1}"
-                    params.append(filters['year'])
+                    params.append(filters["year"])
 
             sql += " ORDER BY liked_you DESC, u.last_active DESC LIMIT 100"
 
@@ -415,27 +416,46 @@ class Database:
             candidates = [_dict_from_row(row) for row in rows]
 
             # --- Ranking ---
-            viewer_vibe = json.loads(user.get('vibe_score', '{}') or '{}')
+            # Parse viewer vibe safely
+            raw_viewer_vibe = user.get("vibe_score")
+            if isinstance(raw_viewer_vibe, str):
+                try:
+                    viewer_vibe = json.loads(raw_viewer_vibe)
+                except Exception:
+                    viewer_vibe = {}
+            elif isinstance(raw_viewer_vibe, dict):
+                viewer_vibe = raw_viewer_vibe
+            else:
+                viewer_vibe = {}
+
             viewer_interests = await self.get_user_interests(user_id)
 
-            candidate_interests_map = {
-                c['id']: await self.get_user_interests(c['id'])
-                for c in candidates
-            }
+            # Batch fetch candidate interests
+            candidate_ids = [c["id"] for c in candidates]
+            all_interests = await self.get_multiple_user_interests(candidate_ids)  # implement this helper
 
             def rank(c):
-                vibe = calculate_vibe_compatibility(
-                    viewer_vibe, json.loads(c.get('vibe_score', '{}') or '{}')
-                )
-                overlap = len(set(viewer_interests) & set(candidate_interests_map[c['id']]))
-                recency = recency_score(c.get('last_active'))
-                liked_you = c.get('liked_you', 0)
-                pass_count = c.get('pass_count', 0)
+                raw_c_vibe = c.get("vibe_score")
+                if isinstance(raw_c_vibe, str):
+                    try:
+                        cand_vibe = json.loads(raw_c_vibe)
+                    except Exception:
+                        cand_vibe = {}
+                elif isinstance(raw_c_vibe, dict):
+                    cand_vibe = raw_c_vibe
+                else:
+                    cand_vibe = {}
+
+                vibe = calculate_vibe_compatibility(viewer_vibe, cand_vibe)
+                overlap = len(set(viewer_interests) & set(all_interests.get(c["id"], [])))
+                recency = recency_score(c.get("last_active"))
+                liked_you = c.get("liked_you", 0)
+                pass_count = c.get("pass_count", 0)
 
                 score = (0.45 * vibe +
-                         0.25 * overlap +
-                         0.2 * recency +
-                         0.1 * liked_you)
+                        0.25 * overlap +
+                        0.2 * recency +
+                        0.1 * liked_you)
 
                 if pass_count == 1:
                     score *= 0.5
@@ -444,14 +464,41 @@ class Database:
 
             candidates.sort(key=rank, reverse=True)
 
+            # Keep top 50, but shuffle lightly for variety
             top = candidates[:50]
-            random.shuffle(top)
+            random.shuffle(top[:10])  # shuffle only top 10 for freshness
             return top
 
         except Exception as e:
             logger.error(f"Error getting matches for user {user_id}: {e}")
             return []
 
+
+    async def get_multiple_user_interests(self, user_ids: List[int]) -> Dict[int, List[str]]:
+        """
+        Fetch interests for multiple users in one query.
+        Returns a dict mapping user_id -> list of interest names.
+        """
+        if not user_ids:
+            return {}
+
+        query = """
+            SELECT i.user_id, ic.name
+            FROM interests i
+            JOIN interest_catalog ic ON i.interest_id = ic.id
+            WHERE i.user_id = ANY($1)
+        """
+        rows = await self.fetch(query, user_ids)
+
+        interests_map: Dict[int, List[str]] = {}
+        for row in rows:
+            uid = row["user_id"]
+            interests_map.setdefault(uid, []).append(row["name"])
+
+        return interests_map
+
+    
+    
     async def count_active_users(self, minutes: int = 10) -> int:
         query = """
             SELECT COUNT(DISTINCT user_id) as cnt
@@ -944,16 +991,19 @@ class Database:
         Ensures the same pass isn't duplicated.
         """
         try:
-            await self.execute(
-                "INSERT INTO passes (user_id, target_id) VALUES ($1, $2) "
-                "ON CONFLICT (user_id, target_id) DO NOTHING",
+            result = await self.execute(
+                """
+                INSERT INTO passes (user_id, target_id, created_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (user_id, target_id) DO NOTHING
+                """,
                 user_id, target_id
             )
             return {"status": "passed"}
         except Exception as e:
             logger.error(f"Error adding pass for user {user_id} -> {target_id}: {e}")
             return {"status": "error", "error": str(e)}
-        
+
     
     async def delete_confession(self, confession_id: int) -> None:
         sql = "DELETE FROM confessions WHERE id = $1"

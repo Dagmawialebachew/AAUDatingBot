@@ -16,7 +16,6 @@ from aiogram.enums import ParseMode
 from handlers_main import get_main_menu_keyboard
 import logging
 from datetime import date
-
 from bot_config import ADMIN_GROUP_ID, CHANNEL_ID, COIN_REWARDS
 from database import db
 from services.content_builder import build_match_drop_text
@@ -766,76 +765,103 @@ async def admin_ignore_request(callback: CallbackQuery):
 
 
 
+# handlers/admin_handlers.py
 
-def get_scheduler_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="⚡️ Post Now"), KeyboardButton(text="🗑 Delete Match")],
-            [KeyboardButton(text="⏹ Stop Scheduler"), KeyboardButton(text="▶ Start Scheduler")],
-            [KeyboardButton(text="📋 List Queue"), KeyboardButton(text="🔙 Back to Admin Menu")]
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="⚙️ Scheduler controls..."
-    )
+from typing import List, Dict, Any, Optional, Set
+from aiogram import Router, F
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram import Bot
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
+from services.match_queue_service import MatchQueueService
+from services.content_builder import build_match_drop_text
+from bot_config import ADMIN_GROUP_ID, CHANNEL_ID
+from database import Database  # your DB wrapper / pool type
 
-def get_scheduler_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="⚡️ Post Now"), KeyboardButton(text="🗑 Delete Match")],
-            [KeyboardButton(text="⏹ Stop Scheduler"), KeyboardButton(text="▶ Start Scheduler")],
-            [KeyboardButton(text="📋 List Queue"), KeyboardButton(text="🔙 Back to Admin Menu")]
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="⚙️ Scheduler controls..."
-    )
+router = Router()
 
-# In-memory scheduler flag (for simple control). For production, use shared state or DB flag.
-scheduler_running = True
+# --- FSM states ---
 class AdminStates(StatesGroup):
     awaiting_delete_id = State()
     awaiting_broadcast_text = State()
-    
-    
-# --- Admin menu navigation ---
-@router.message(F.text == "⚙️ Scheduler Controls")
-async def open_scheduler_menu(message: Message):
-    await message.answer("Scheduler controls:", reply_markup=get_scheduler_menu())
-    await message.delete_reply_markup()
 
+# --- Keyboards ---
+def get_admin_main_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📋 Confessions"), KeyboardButton(text="📊 Stats")],
+            [KeyboardButton(text="📢 Broadcast"), KeyboardButton(text="👥 User Management")],
+            [KeyboardButton(text="🗂️ Browse Users"), KeyboardButton(text="⚙️ Scheduler Controls")],
+            [KeyboardButton(text="🔙 Exit Admin Mode")]
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="🔐 Admin controls..."
+    )
+
+def get_scheduler_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="⚡️ Post Now"), KeyboardButton(text="🗑 Delete Match")],
+            [KeyboardButton(text="⏹ Stop Scheduler"), KeyboardButton(text="▶ Start Scheduler")],
+            [KeyboardButton(text="📋 List Queue"), KeyboardButton(text="🔙 Back to Admin Menu")]
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="⚙️ Scheduler controls..."
+    )
+
+# In-memory scheduler flag (consider persisting for restarts)
+scheduler_running = True
+
+# --- Open scheduler menu (safe delete_reply_markup) ---
+@router.message(F.text == "⚙️ Scheduler Controls")
+async def open_scheduler_menu(message: Message, bot: Bot):
+    # Send the scheduler menu; try to remove reply markup from the user's message if possible
+    await message.answer("Scheduler controls:", reply_markup=get_scheduler_menu())
+    try:
+        # Only attempt to remove markup if the message is editable by the bot
+        await message.delete_reply_markup()
+    except Exception:
+        # Ignore errors (message not editable, already edited, etc.)
+        pass
+
+# --- Back to admin menu ---
 @router.message(F.text == "🔙 Back to Admin Menu")
 async def back_to_admin_menu(message: Message):
     await message.answer("Admin menu:", reply_markup=get_admin_main_menu())
 
-# --- Post Now (force post top due item) ---
+# --- Force-post top due item ---
 @router.message(F.text == "⚡️ Post Now")
-async def admin_post_now(message: Message, db, bot):
+async def admin_post_now(message: Message, bot: Bot):
     service = MatchQueueService(db, bot)
     items = await service.get_due_items()
     if not items:
         await message.answer("No due matches right now.")
         return
 
-    # pick highest score
     ranked = sorted(items, key=lambda i: service.compute_score(i), reverse=True)
     item = ranked[0]
     try:
         text = build_match_drop_text(item)
         await bot.send_message(CHANNEL_ID, text)
         await service.mark_sent(item["id"])
-        await bot.send_message(ADMIN_GROUP_ID, f"⚡️ FORCE POSTED\nQueue ID: {item['id']}\nBy: {message.from_user.id}")
+        await bot.send_message(
+            ADMIN_GROUP_ID,
+            f"⚡️ FORCE POSTED\nQueue ID: {item['id']}\nBy: {message.from_user.id}"
+        )
         await message.answer(f"Force posted queue ID {item['id']}")
     except Exception as e:
         await service.record_error(item["id"], str(e))
         await message.answer(f"Error posting item {item['id']}: {e}")
-
+        
+        
 # --- Delete Match (stateful) ---
 @router.message(F.text == "🗑 Delete Match")
 async def admin_delete_match_prompt(message: Message, state: FSMContext):
     await state.set_state(AdminStates.awaiting_delete_id)
-    await message.answer("Send me the Queue ID to delete (or type Cancel):")
+    await message.answer("Send me the Queue ID to delete (or type Cancel):", reply_markup=None)
 
 @router.message(AdminStates.awaiting_delete_id, F.text.lower() == "cancel")
 async def admin_delete_cancel(message: Message, state: FSMContext):
@@ -843,13 +869,27 @@ async def admin_delete_cancel(message: Message, state: FSMContext):
     await message.answer("Delete cancelled.", reply_markup=get_scheduler_menu())
 
 @router.message(AdminStates.awaiting_delete_id, F.text.regexp(r"^\d+$"))
-async def admin_delete_match_confirm(message: Message, db, bot, state: FSMContext):
+async def admin_delete_match_confirm(message: Message, state: FSMContext):
+    from bot import bot
     queue_id = int(message.text.strip())
     service = MatchQueueService(db, bot)
-    deleted = await service.delete_item(queue_id)
+    try:
+        deleted = await service.delete_item(queue_id)
+    except Exception as e:
+        await message.answer("Error while deleting. Check logs.", reply_markup=get_scheduler_menu())
+        await bot.send_message(
+            ADMIN_GROUP_ID,
+            f"🟥 DELETE ERROR\nQueue ID: {queue_id}\nError: {e}\nBy: {message.from_user.id}"
+        )
+        await state.clear()
+        return
+
     if deleted:
         await message.answer(f"✅ Deleted queue item {queue_id}", reply_markup=get_scheduler_menu())
-        await bot.send_message(ADMIN_GROUP_ID, f"🗑 MATCH DELETED\nQueue ID: {queue_id}\nAction by: {message.from_user.id}")
+        await bot.send_message(
+            ADMIN_GROUP_ID,
+            f"🗑 MATCH DELETED\nQueue ID: {queue_id}\nAction by: {message.from_user.id}"
+        )
     else:
         await message.answer("❌ Queue item not found.", reply_markup=get_scheduler_menu())
     await state.clear()
@@ -859,30 +899,40 @@ async def admin_delete_invalid(message: Message, state: FSMContext):
     await message.answer("Please send a numeric Queue ID or type Cancel.")
 
 # --- Stop / Start Scheduler ---
+scheduler_running = True  # global flag
+
 @router.message(F.text == "⏹ Stop Scheduler")
 async def admin_stop_scheduler(message: Message):
+    from bot import bot
     global scheduler_running
     scheduler_running = False
     await message.answer("Scheduler stopped.", reply_markup=get_scheduler_menu())
-    await message.bot.send_message(ADMIN_GROUP_ID, f"⏹ Scheduler stopped by admin {message.from_user.id}")
+    await bot.send_message(
+        ADMIN_GROUP_ID,
+        f"⏹ Scheduler stopped by admin {message.from_user.id}"
+    )
 
 @router.message(F.text == "▶ Start Scheduler")
 async def admin_start_scheduler(message: Message):
+    from bot import bot
     global scheduler_running
     scheduler_running = True
     await message.answer("Scheduler started.", reply_markup=get_scheduler_menu())
-    await message.bot.send_message(ADMIN_GROUP_ID, f"▶ Scheduler started by admin {message.from_user.id}")
+    await bot.send_message(
+        ADMIN_GROUP_ID,
+        f"▶ Scheduler started by admin {message.from_user.id}"
+    )
 
 # --- List Queue (all pending) ---
 @router.message(F.text == "📋 List Queue")
-async def admin_list_queue(message: Message, db, bot):
+async def admin_list_queue(message: Message):
+    from bot import bot
     service = MatchQueueService(db, bot)
     items = await service.get_all_pending()
     if not items:
         await message.answer("Queue is empty.", reply_markup=get_scheduler_menu())
         return
 
-    # Build a compact summary (limit to first 50 items to avoid huge messages)
     lines = []
     for i in items[:50]:
         special = i.get("special_type") or "—"
@@ -891,5 +941,11 @@ async def admin_list_queue(message: Message, db, bot):
         lines.append(f"ID {i['id']} • Vibe {vibe:.0f} • {special} • {next_time}")
 
     summary = "\n".join(lines)
-    await message.answer(f"📋 Pending Matches (first {len(lines)}):\n{summary}", reply_markup=get_scheduler_menu())
-    await bot.send_message(ADMIN_GROUP_ID, f"📋 Admin {message.from_user.id} viewed queue list.")
+    await message.answer(
+        f"📋 Pending Matches (first {len(lines)}):\n{summary}",
+        reply_markup=get_scheduler_menu()
+    )
+    await bot.send_message(
+        ADMIN_GROUP_ID,
+        f"📋 Admin {message.from_user.id} viewed queue list."
+    )

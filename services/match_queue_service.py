@@ -48,7 +48,9 @@ class MatchQueueService:
         Push match into queue for channel posting.
         `interests` MUST be a list -> stored as JSON string.
         """
-
+        
+        
+  
         next_time = self.compute_next_post_time()
         interests_json = json.dumps(interests or [])
 
@@ -117,6 +119,16 @@ class MatchQueueService:
     # ----------------------------------------------------
     # SCORING FUNCTION
     # ----------------------------------------------------
+    
+    async def get_all_pending(self):
+            query = """
+                SELECT *
+                FROM match_queue
+                WHERE sent = FALSE
+                ORDER BY next_post_time ASC, created_at ASC;
+            """
+            return await self.db.pool.fetch(query)
+
     def compute_score(self, item):
         score = (item.get("vibe_score") or 0) * 2
         try:

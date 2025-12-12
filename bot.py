@@ -18,7 +18,8 @@ from handlers_main import router as main_router
 from handlers_matching import router as matching_router
 from handlers_chat import router as chat_router
 from handlers_confession import router as confession_router
-from handlers_admin import ADMIN_IDS, router as admin_router
+from handlers_admin import router as admin_router
+from handlers_admin import ADMIN_IDS
 from handlers_crushes import router as crushes_router
 from handlers_leaderboard import router as leaderboard_router
 from handlers_coin_and_shop import router as coin_and_shop_router
@@ -35,7 +36,7 @@ ADMIN_GROUP_ID = os.getenv("ADMIN_GROUP_ID")  # keep as string if it's a chat/ch
 BASE_URL = os.getenv("BASE_URL", "")          # e.g., https://aaudatingbot.onrender.com
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 PORT = int(os.getenv("PORT", "8080"))
-
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 # -------------------- Logging --------------------
 logging.basicConfig(
     level=logging.INFO,

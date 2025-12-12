@@ -106,7 +106,7 @@ async def help_command(message: Message):
             "• 📝 Edit Bio\n"
             "• 📸 Change Photo\n"
             "• 💫 Retake Vibe Quiz\n"
-            "• 🔄 Change Gender/Seeking\n\n"
+            "• 🔄 Change Identity\n\n"
 
          
             "🧠 <b>Tips</b>\n"

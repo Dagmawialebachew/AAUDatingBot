@@ -91,9 +91,7 @@ def get_gender_keyboard():
             InlineKeyboardButton(text="👦♂️ Male", callback_data="gender_male"),
             InlineKeyboardButton(text="👩♀️ Female", callback_data="gender_female"),
         ],
-        [
-            InlineKeyboardButton(text="⚧ Other", callback_data="gender_other"),
-        ],
+     
     ])
     return keyboard
 
@@ -196,7 +194,7 @@ def get_edit_profile_main_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="📸 Change Photo")
             ],
             [
-                KeyboardButton(text="🔄 Change Gender"),
+                KeyboardButton(text="🔄 Change Identity"),
                 KeyboardButton(text="➡️ More")
             ],
             [
@@ -1380,18 +1378,21 @@ async def safe_edit(callback: CallbackQuery, text: str, keyboard=None):
         await msg.answer(text, reply_markup=keyboard)
 
 
-# --- Start Gender/Seeking Edit Flow ---
 # --- Start Change Identity flow ---
 @router.message(F.text == "🔄 Change Identity")
 async def start_edit_identity_reply(message: Message, state: FSMContext):
+    # Fetch current gender from DB
+    user = await db.get_user(message.from_user.id)
+    current_gender = user.get("gender") or "Not set"
+
     await message.answer(
-        "🔄 **Change Identity** 🔄\n\n"
-        "Let's update your gender. What's your gender now? 👀",
+        f"🔄 **Change Identity** 🔄\n\n"
+        f"Your current gender is: *{current_gender}*\n\n"
+        "Let's update it — what's your gender now? 👀",
         reply_markup=get_gender_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(EditProfile.editing_gender)
-
 
 # --- Process Gender Selection (only) ---
 @router.callback_query(F.data.startswith("gender_"))
@@ -1404,19 +1405,19 @@ async def process_edit_gender(callback: CallbackQuery, state: FSMContext):
     gender = callback.data.split("gender_")[1]
 
     # Update DB directly
-    await db.update_user(callback.from_user.id, {'gender': gender})
+    await db.update_user(callback.from_user.id, {"gender": gender})
     await state.clear()
 
     # Fetch updated profile
     user = await db.get_user(callback.from_user.id)
     stats = await db.get_user_stats(callback.from_user.id)
 
+    # Confirm update
     await safe_edit(callback, f"✅ Gender updated to {gender}! 🔥", keyboard=None)
 
     # Show updated profile view
     await _render_profile_view(callback, user, stats)
     await callback.answer()
-
 
 # # --- Catch-all fallback for unhandled callbacks ---
 # @router.callback_query()
