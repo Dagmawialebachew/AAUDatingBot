@@ -20,9 +20,9 @@ from bot_config import ADMIN_GROUP_ID, CHANNEL_ID, COIN_REWARDS
 from database import db
 from services.content_builder import build_match_drop_text
 from services.match_queue_service import MatchQueueService
+router = Router()
 
 logger = logging.getLogger(__name__)
-router = Router()
 
 # --- Admins ---
 ADMIN_IDS = [1131741322]  # add more admin user IDs as needed
@@ -779,7 +779,6 @@ from services.content_builder import build_match_drop_text
 from bot_config import ADMIN_GROUP_ID, CHANNEL_ID
 from database import Database  # your DB wrapper / pool type
 
-router = Router()
 
 # --- FSM states ---
 class AdminStates(StatesGroup):
