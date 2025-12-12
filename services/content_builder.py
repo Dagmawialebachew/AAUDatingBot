@@ -195,3 +195,4 @@ def build_match_drop_text(item):
 
     # add contextual hype
     return f"{text}\n\n{vibe_line(vibe_score)}\n\n— @AAUPulseBot 💫"
+

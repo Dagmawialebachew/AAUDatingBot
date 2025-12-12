@@ -16,6 +16,8 @@ PRIME_POST_TIMES = [
     (22, 30),
 ]
 
+MAX_POSTS_PER_SLOT = 3  # cap how many matches to post per prime slot
+
 
 class MatchQueueService:
 
@@ -34,7 +36,7 @@ class MatchQueueService:
             if scheduled > now:
                 return scheduled
 
-        # If all today's times passed → tommorrow at 12:15
+        # If all today's times passed → tomorrow at 12:15
         tomorrow = now + timedelta(days=1)
         return tomorrow.replace(hour=12, minute=15, second=0, microsecond=0)
 
@@ -70,7 +72,7 @@ class MatchQueueService:
             user1.get("campus"), user2.get("campus"),
             user1.get("department"), user2.get("department"),
             user1.get("year"), user2.get("year"),
-            interests_json,                   # JSON string
+            interests_json,
             float(vibe_score or 0.0),
             special_type,
             next_time
@@ -78,7 +80,7 @@ class MatchQueueService:
 
         queue_id = row["id"]
 
-        # Log to admin ONLY here (not for every like)
+        # Log to admin
         await self.bot.send_message(
             ADMIN_GROUP_ID,
             (
@@ -97,23 +99,48 @@ class MatchQueueService:
             parse_mode="HTML"
         )
 
-
-
         return queue_id
 
     # ----------------------------------------------------
-    # FETCH NEXT ITEM READY TO POST
+    # FETCH ALL ITEMS READY TO POST
     # ----------------------------------------------------
-    async def get_due_item(self):
+    async def get_due_items(self):
         query = """
             SELECT *
             FROM match_queue
             WHERE sent = FALSE
             AND next_post_time <= NOW()
-            ORDER BY next_post_time ASC
-            LIMIT 1;
+            ORDER BY vibe_score DESC, created_at ASC;
         """
-        return await self.db.pool.fetchrow(query)
+        return await self.db.pool.fetch(query)
+
+    # ----------------------------------------------------
+    # SCORING FUNCTION
+    # ----------------------------------------------------
+    def compute_score(self, item):
+        score = (item.get("vibe_score") or 0) * 2
+        try:
+            interests = json.loads(item.get("interests") or "[]")
+        except Exception:
+            interests = []
+
+        score += len(interests) * 5
+
+        special = item.get("special_type")
+        if special == "high-vibe":
+            score += 100  # top priority
+        elif special == "freshman-senior":
+            score += 80
+        elif special == "cross-campus":
+            score += 60
+        elif special == "shared-interests":
+            score += 40
+        elif special == "same-department":
+            score += 20
+        elif special == "opposite-department":
+            score += 10
+
+        return score
 
     # ----------------------------------------------------
     # MARK QUEUE ITEM AS SENT
@@ -122,6 +149,16 @@ class MatchQueueService:
         await self.db.pool.execute(
             "UPDATE match_queue SET sent = TRUE, sent_at = NOW() WHERE id = $1",
             queue_id
+        )
+
+    # ----------------------------------------------------
+    # RESCHEDULE ITEM TO NEXT SLOT
+    # ----------------------------------------------------
+    async def reschedule(self, queue_id):
+        new_time = self.compute_next_post_time()
+        await self.db.pool.execute(
+            "UPDATE match_queue SET next_post_time = $1 WHERE id = $2",
+            new_time, queue_id
         )
 
     # ----------------------------------------------------

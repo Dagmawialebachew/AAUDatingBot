@@ -71,7 +71,7 @@ YEARS = {
     "🎓 5th Year+": "5th Year+",
 }
 
-GENDERS = ["👦 Male", "👩 Female", "⚧ Other"]
+GENDERS = ["👦 Male", "👩 Female"]
 
 COIN_REWARDS = {
     'daily_login': 10,

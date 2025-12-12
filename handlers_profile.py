@@ -143,6 +143,7 @@ def get_department_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+
 @router.message(F.text == "✍️ Edit Name/Bio")
 async def open_edit_name_bio_tab(message: Message, state: FSMContext):
     """Replace keyboard with Edit Name / Change Bio options."""
@@ -195,7 +196,7 @@ def get_edit_profile_main_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="📸 Change Photo")
             ],
             [
-                KeyboardButton(text="🔄 Change Identity/Seeking"),
+                KeyboardButton(text="🔄 Change Gender"),
                 KeyboardButton(text="➡️ More")
             ],
             [
@@ -629,12 +630,23 @@ async def process_gender(callback: CallbackQuery, state: FSMContext):
     gender = callback.data.split("gender_")[1]
     await state.update_data(gender=gender)
 
+    # Auto-assign seeking gender instead of asking
+    if gender == "male":
+        await state.update_data(seeking_gender="female")
+    elif gender == "female":
+        await state.update_data(seeking_gender="male")
+    else:
+        # For "other", you can decide whether to default to "any" or skip
+        await state.update_data(seeking_gender="any")
+
+    # Jump straight to campus selection
     await callback.message.edit_text(
-        f"Aight, {gender} it is! ✅\n\nNow... who are you tryna match with? 💘",
-        reply_markup=get_seeking_keyboard()
+        f"Aight, {gender} it is! ✅\n\nWhich campus you reppin'? 🏫",
+        reply_markup=get_campus_keyboard()
     )
-    await state.set_state(ProfileSetup.seeking_gender)
+    await state.set_state(ProfileSetup.campus)
     await callback.answer()
+
 
 # ... (Other setup handlers: process_seeking, process_campus, process_department, process_custom_department, process_year, process_name, process_bio remain largely the same) ...
 
@@ -1162,7 +1174,7 @@ async def edit_profile_menu(callback: CallbackQuery, state: FSMContext):
             InlineKeyboardButton(text="💫 Retake Vibe Quiz", callback_data="edit_field_vibe")
         ],
         [
-            InlineKeyboardButton(text="🔄 Change Gender/Seeking", callback_data="edit_field_gender_seeking")
+            InlineKeyboardButton(text="🔄 Change Identity", callback_data="edit_field_gender_seeking")
         ],
         [
             InlineKeyboardButton(text="🔙 Back to Profile", callback_data="view_profile")
@@ -1369,18 +1381,19 @@ async def safe_edit(callback: CallbackQuery, text: str, keyboard=None):
 
 
 # --- Start Gender/Seeking Edit Flow ---
-@router.message(F.text == "🔄 Change Identity/Seeking")
-async def start_edit_identity_reply(message, state: FSMContext):
+# --- Start Change Identity flow ---
+@router.message(F.text == "🔄 Change Identity")
+async def start_edit_identity_reply(message: Message, state: FSMContext):
     await message.answer(
-        "🔄 **Change Identity/Seeking** 🔄\n\n"
-        "Let's update your core profile details. What's your gender now? 👀",
+        "🔄 **Change Identity** 🔄\n\n"
+        "Let's update your gender. What's your gender now? 👀",
         reply_markup=get_gender_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(EditProfile.editing_gender)
 
 
-# --- Process Gender Selection ---
+# --- Process Gender Selection (only) ---
 @router.callback_query(F.data.startswith("gender_"))
 async def process_edit_gender(callback: CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
@@ -1389,40 +1402,18 @@ async def process_edit_gender(callback: CallbackQuery, state: FSMContext):
         return
 
     gender = callback.data.split("gender_")[1]
-    await state.update_data(gender_edit=gender)
 
-    await safe_edit(
-        callback,
-        f"Aight, {gender} it is! ✅\n\nNow... who are you tryna match with? 💘",
-        keyboard=get_seeking_keyboard()
-    )
-    await state.set_state(EditProfile.editing_seeking)
-    await callback.answer()
-
-
-# --- Process Seeking Selection ---
-@router.callback_query(F.data.startswith("seeking_"))
-async def process_edit_seeking(callback: CallbackQuery, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state != EditProfile.editing_seeking:
-        await callback.answer("This action is no longer valid 😅", show_alert=True)
-        return
-
-    seeking = callback.data.split("seeking_")[1]
-    data = await state.get_data()
-    gender = data.get('gender_edit')
-
-    # Update DB
-    await db.update_user(callback.from_user.id, {'gender': gender, 'seeking_gender': seeking})
+    # Update DB directly
+    await db.update_user(callback.from_user.id, {'gender': gender})
     await state.clear()
 
     # Fetch updated profile
     user = await db.get_user(callback.from_user.id)
     stats = await db.get_user_stats(callback.from_user.id)
 
-    await safe_edit(callback, "✅ Identity updated! Go get 'em! 🔥", keyboard=None)
+    await safe_edit(callback, f"✅ Gender updated to {gender}! 🔥", keyboard=None)
 
-    # Display updated profile
+    # Show updated profile view
     await _render_profile_view(callback, user, stats)
     await callback.answer()
 
