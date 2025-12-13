@@ -4,7 +4,7 @@ import asyncio
 from bot_config import ADMIN_GROUP_ID, CHANNEL_ID
 from services.match_queue_service import MatchQueueService
 from services.content_builder import build_match_drop_text
-
+MAX_POSTS_PER_SLOT = 3  # maximum number of matches to post per scheduling slot     
 async def run_match_queue_scheduler(db, bot):
     service = MatchQueueService(db, bot)
 
@@ -18,8 +18,8 @@ async def run_match_queue_scheduler(db, bot):
                 ranked = sorted(items, key=lambda i: service.compute_score(i), reverse=True)
 
                 # Cap how many to post per slot
-                to_post = ranked[:service.MAX_POSTS_PER_SLOT]
-                to_reschedule = ranked[service.MAX_POSTS_PER_SLOT:]
+                to_post = ranked[:MAX_POSTS_PER_SLOT]
+                to_reschedule = ranked[MAX_POSTS_PER_SLOT:]
 
                 # Post top matches
                 for item in to_post:
